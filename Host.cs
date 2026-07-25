@@ -32,18 +32,94 @@ internal static class HostLog
     }
 }
 
+internal static class EmbeddedRuntime
+{
+    private const string AppPrefix = "FreakShow.App.";
+    private static readonly Assembly ExecutingAssembly = Assembly.GetExecutingAssembly();
+    private static string runtimeRoot;
+
+    public static string Prepare()
+    {
+        string parent = Path.Combine(Path.GetTempPath(), "FreakShow-Embedded");
+        CleanupOldRuntimeDirectories(parent);
+        runtimeRoot = Path.Combine(parent, Process.GetCurrentProcess().Id.ToString() + "-" + Guid.NewGuid().ToString("N"));
+        string appRoot = Path.Combine(runtimeRoot, "app");
+        Directory.CreateDirectory(appRoot);
+
+        string[] resources = ExecutingAssembly.GetManifestResourceNames();
+        int appFiles = 0;
+        for (int i = 0; i < resources.Length; i++)
+        {
+            string resource = resources[i];
+            if (!resource.StartsWith(AppPrefix, StringComparison.Ordinal)) continue;
+            string fileName = resource.Substring(AppPrefix.Length);
+            if (String.IsNullOrWhiteSpace(fileName) || !String.Equals(fileName, Path.GetFileName(fileName), StringComparison.Ordinal))
+                throw new InvalidOperationException("Ungültige eingebettete App-Ressource: " + resource);
+            ExtractResource(resource, Path.Combine(appRoot, fileName));
+            appFiles++;
+        }
+        if (appFiles == 0 || !File.Exists(Path.Combine(appRoot, "index.html")) || !File.Exists(Path.Combine(appRoot, "websocket-diagnose.html")))
+            throw new InvalidOperationException("Die eingebettete FreakShow-Weboberfläche ist unvollständig.");
+
+        HostLog.Write("Embedded runtime prepared. AppFiles=" + appFiles);
+        return appRoot;
+    }
+
+    private static void ExtractResource(string resourceName, string destination)
+    {
+        using (Stream input = ExecutingAssembly.GetManifestResourceStream(resourceName))
+        {
+            if (input == null) throw new InvalidOperationException("Embedded resource missing: " + resourceName);
+            using (FileStream output = new FileStream(destination, FileMode.Create, FileAccess.Write, FileShare.Read)) input.CopyTo(output);
+        }
+    }
+
+    private static void CleanupOldRuntimeDirectories(string parent)
+    {
+        try
+        {
+            if (!Directory.Exists(parent)) return;
+            string fullParent = Path.GetFullPath(parent).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            string[] directories = Directory.GetDirectories(parent);
+            for (int i = 0; i < directories.Length; i++)
+            {
+                string full = Path.GetFullPath(directories[i]);
+                if (full.StartsWith(fullParent, StringComparison.OrdinalIgnoreCase))
+                {
+                    try { Directory.Delete(full, true); } catch { }
+                }
+            }
+        }
+        catch { }
+    }
+
+    public static void Cleanup()
+    {
+        try
+        {
+            if (String.IsNullOrWhiteSpace(runtimeRoot) || !Directory.Exists(runtimeRoot)) return;
+            string parent = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "FreakShow-Embedded")).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            string full = Path.GetFullPath(runtimeRoot);
+            if (full.StartsWith(parent, StringComparison.OrdinalIgnoreCase)) Directory.Delete(full, true);
+        }
+        catch { }
+    }
+}
+
 internal sealed class EmbeddedBridge : IDisposable
 {
     private readonly string contentRoot;
     private readonly string exePath;
+    private readonly string appRoot;
     private Thread thread;
     private PowerShell shell;
     private volatile bool disposed;
 
-    public EmbeddedBridge(string contentRoot, string exePath)
+    public EmbeddedBridge(string contentRoot, string exePath, string appRoot)
     {
         this.contentRoot = contentRoot;
         this.exePath = exePath;
+        this.appRoot = appRoot;
     }
 
     public void Start()
@@ -89,12 +165,16 @@ internal sealed class EmbeddedBridge : IDisposable
             ps.AddParameter("OverlayMonitorPath", Path.Combine(dataConfig, "overlay-monitor.json"));
             ps.AddParameter("PauseHotkeyPath", Path.Combine(dataConfig, "pause-hotkey.json"));
             ps.AddParameter("UiStatePath", Path.Combine(dataConfig, "ui-state.json"));
+            ps.AddParameter("PrivateUiStatePath", Path.Combine(dataConfig, "ui-private-state.dat"));
+            ps.AddParameter("GameControlsPath", Path.Combine(dataConfig, "game-controls.json"));
+            ps.AddParameter("GameAutomationRoot", Path.Combine(baseDir, "automation"));
+            ps.AddParameter("AutoHotkeyRuntimeRoot", Path.Combine(baseDir, "runtime", "AutoHotkey"));
             ps.AddParameter("AllowedIpsPath", Path.Combine(dataConfig, "allowed-ips.json"));
             ps.AddParameter("WebSocketConfigPath", Path.Combine(dataConfig, "websocket-config.json"));
-            ps.AddParameter("AppRoot", Path.Combine(baseDir, "app"));
+            ps.AddParameter("AppRoot", appRoot);
             ps.AddParameter("ContentRoot", contentRoot);
             ps.AddParameter("OverlayExePath", exePath);
-            ps.AddParameter("SettingsPagePath", Path.Combine(baseDir, "app", "websocket-diagnose.html"));
+            ps.AddParameter("SettingsPagePath", Path.Combine(appRoot, "websocket-diagnose.html"));
             ps.AddParameter("EmbeddedHost", true);
             ps.Streams.Error.DataAdded += delegate(object sender, DataAddedEventArgs e)
             {
@@ -725,20 +805,30 @@ internal static class Program
         AppDomain.CurrentDomain.UnhandledException += delegate(object sender, UnhandledExceptionEventArgs e) { HostLog.Write("FATAL: " + e.ExceptionObject); };
 
         string contentRoot = ResolveContentRoot(args, baseDir);
-        string appDir = Path.Combine(baseDir, "app");
-        if (String.IsNullOrEmpty(contentRoot) || !File.Exists(Path.Combine(appDir, "index.html")) || !File.Exists(Path.Combine(appDir, "websocket-diagnose.html")))
+        if (String.IsNullOrEmpty(contentRoot))
         {
             MessageBox.Show("Kein gültiger Content-Ordner gefunden.\nBitte FreakShow.config.json prüfen.", "FreakShow", MessageBoxButtons.OK, MessageBoxIcon.Error);
             return;
         }
 
+        string appDir;
+        try { appDir = EmbeddedRuntime.Prepare(); }
+        catch (Exception ex)
+        {
+            HostLog.Write("Embedded runtime preparation failed: " + ex);
+            MessageBox.Show("Die eingebettete FreakShow-Oberfläche konnte nicht gestartet werden.\n\n" + ex.Message, "FreakShow", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            EmbeddedRuntime.Cleanup();
+            return;
+        }
+
         HostLog.Write("Host starting. ContentRoot=" + contentRoot);
-        bridge = new EmbeddedBridge(contentRoot, Application.ExecutablePath);
+        bridge = new EmbeddedBridge(contentRoot, Application.ExecutablePath, appDir);
         bridge.Start();
         try { Application.Run(new OverlayForm(contentRoot)); }
         finally
         {
             if (bridge != null) bridge.Dispose();
+            EmbeddedRuntime.Cleanup();
             if (mutex != null) { try { mutex.ReleaseMutex(); } catch { } mutex.Dispose(); }
             HostLog.Write("Host stopped.");
         }

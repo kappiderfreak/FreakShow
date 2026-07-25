@@ -22,6 +22,7 @@ Logs/
 Updates/
 .update-test/
 release-output/
+runtime/AutoHotkey/
 
 # --- Persönliche Nutzerdaten & Laufzeit-Zustand ---
 # (Cheatsheet, Bilder-/Video-Overlays, LAN-/IP-Freigabe, Streamer.bot-Config, UI-State …)

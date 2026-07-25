@@ -14,17 +14,26 @@ param(
   [string]$OverlayMonitorPath = (Join-Path $PSScriptRoot 'data\config\overlay-monitor.json'),
   [string]$PauseHotkeyPath = (Join-Path $PSScriptRoot 'data\config\pause-hotkey.json'),
   [string]$UiStatePath = (Join-Path $PSScriptRoot 'data\config\ui-state.json'),
+  [string]$PrivateUiStatePath = (Join-Path $PSScriptRoot 'data\config\ui-private-state.dat'),
+  [string]$GameControlsPath = (Join-Path $PSScriptRoot 'data\config\game-controls.json'),
+  [string]$GameAutomationRoot = (Join-Path $PSScriptRoot 'automation'),
+  [string]$AutoHotkeyRuntimeRoot = (Join-Path $PSScriptRoot 'runtime\AutoHotkey'),
   [string]$AllowedIpsPath = (Join-Path $PSScriptRoot 'data\config\allowed-ips.json'),
   [string]$WebSocketConfigPath = (Join-Path $PSScriptRoot 'data\config\websocket-config.json'),
   [string]$AppRoot = (Join-Path $PSScriptRoot 'app'),
   [string]$ContentRoot = (Join-Path $PSScriptRoot 'Content'),
   [int]$WsProxyPort = 18082,
   [string]$OverlayExePath = (Join-Path $PSScriptRoot 'HtmlWindowsOverlayModern.exe'),
-  [string]$SettingsPagePath = (Join-Path $PSScriptRoot 'Content\websocket-diagnose.html'),
+  [string]$SettingsPagePath = (Join-Path $PSScriptRoot 'app\websocket-diagnose.html'),
   [switch]$EmbeddedHost
 )
 
 $ErrorActionPreference = 'Stop'
+# Die eingebettete PowerShell-Runspace laedt System.Security nicht auf jedem Rechner
+# automatisch. DPAPI fuer private Zugangsdaten deshalb explizit bereitstellen.
+try { Add-Type -AssemblyName System.Security -ErrorAction Stop } catch {}
+$script:GameControlRuns = @()
+$GameControlRuntimeRoot = [System.IO.Path]::GetFullPath((Join-Path (Split-Path -Parent $GameControlsPath) '..\state\game-control-runtime'))
 # Control-Token pro Installation: beim ersten Start zufaellig erzeugt und in
 # data\config\control-token.json gespeichert (gitignored), danach von dort geladen.
 # Frueher stand er hier fest im Code. Die Bridge setzt ihn beim Ausliefern der
@@ -311,6 +320,8 @@ function Write-ExternalLinksJson {
     $area = $item.area
     $enabled = if ($null -ne $item.enabled) { [bool]$item.enabled } else { $true }
     $persistent = if ($null -ne $item.persistent) { [bool]$item.persistent } else { $true }
+    $trigger = ([string]$item.trigger).Trim()
+    $triggerOn = if ($null -ne $item.triggerOn) { [bool]$item.triggerOn } else { $false }
     $links += [ordered]@{
       id = [string]$item.id
       name = [string]$item.name
@@ -319,6 +330,9 @@ function Write-ExternalLinksJson {
       persistent = $persistent
       monitorParams = [bool]$item.monitorParams
       enabled = $enabled
+      trigger = $trigger
+      triggerOn = $triggerOn
+      manualVersion = if ($null -ne $item.manualVersion) { [int64]$item.manualVersion } else { 0 }
       area = [ordered]@{
         preset = if ([string]::IsNullOrWhiteSpace([string]$area.preset)) { 'full' } else { [string]$area.preset }
         x = Clamp-Int -Value $area.x -Fallback 0 -Min 0 -Max 20000
@@ -409,6 +423,11 @@ function Get-JavaScriptVideoOverlays {
         removeBackground = $false
         keyColor = '#00ff00'
         tolerance = 20
+        sideBars = $true
+        align = 'center'
+        freePosition = $false
+        freePositionOutside = $false
+        videoArea = [ordered]@{ x = 0; y = 0; width = 100; height = 100 }
         enabled = $true
         managed = $false
         sourceFile = $file.Name
@@ -437,10 +456,94 @@ function Normalize-VideoOverlayItem {
   $sideBars = if ($null -ne $Item.sideBars) { [System.Convert]::ToBoolean($Item.sideBars) } else { $true }
   $align = if ($null -ne $Item.align) { ([string]$Item.align).Trim().ToLowerInvariant() } else { 'center' }
   if (@('center','left','right','top','bottom') -notcontains $align) { $align = 'center' }
+  $freePosition = if ($null -ne $Item.freePosition) { [System.Convert]::ToBoolean($Item.freePosition) } else { $false }
+  $freePositionOutside = if ($null -ne $Item.freePositionOutside) { [System.Convert]::ToBoolean($Item.freePositionOutside) } else { $false }
+  $area = if ($null -ne $Item.videoArea) { $Item.videoArea } else { $null }
+  $areaWidth = ConvertTo-SafeDouble -Value $(if ($null -ne $area) { $area.width } else { 100 }) -Fallback 100 -Min 8 -Max 100
+  $areaHeight = ConvertTo-SafeDouble -Value $(if ($null -ne $area) { $area.height } else { 100 }) -Fallback 100 -Min 8 -Max 100
+  $areaXMin = if ($freePositionOutside) { 0 - $areaWidth } else { 0 }
+  $areaYMin = if ($freePositionOutside) { 0 - $areaHeight } else { 0 }
+  $areaXMax = if ($freePositionOutside) { 100 } else { 100 - $areaWidth }
+  $areaYMax = if ($freePositionOutside) { 100 } else { 100 - $areaHeight }
+  $areaX = ConvertTo-SafeDouble -Value $(if ($null -ne $area) { $area.x } else { 0 }) -Fallback 0 -Min $areaXMin -Max $areaXMax
+  $areaY = ConvertTo-SafeDouble -Value $(if ($null -ne $area) { $area.y } else { 0 }) -Fallback 0 -Min $areaYMin -Max $areaYMax
+  # OBS-artiger Zuschnitt: Anteile (0-80 %) des unbeschnittenen Videos je Kante;
+  # gegenueberliegende Kanten zusammen maximal 80 %, damit Restflaeche bleibt.
+  $videoCropSrc = if ($null -ne $Item.videoCrop) { $Item.videoCrop } else { $null }
+  $cropLeft = ConvertTo-SafeDouble -Value $(if ($null -ne $videoCropSrc) { $videoCropSrc.left } else { 0 }) -Fallback 0 -Min 0 -Max 80
+  $cropRight = ConvertTo-SafeDouble -Value $(if ($null -ne $videoCropSrc) { $videoCropSrc.right } else { 0 }) -Fallback 0 -Min 0 -Max (80 - $cropLeft)
+  $cropTop = ConvertTo-SafeDouble -Value $(if ($null -ne $videoCropSrc) { $videoCropSrc.top } else { 0 }) -Fallback 0 -Min 0 -Max 80
+  $cropBottom = ConvertTo-SafeDouble -Value $(if ($null -ne $videoCropSrc) { $videoCropSrc.bottom } else { 0 }) -Fallback 0 -Min 0 -Max (80 - $cropTop)
   $group = if ($null -ne $Item.group) { ([string]$Item.group).Trim() } else { '' }
   $groupTrigger = if ($null -ne $Item.groupTrigger) { ([string]$Item.groupTrigger).Trim() } else { '' }
   $markColor = if ($null -ne $Item.markColor) { ([string]$Item.markColor).Trim().ToLowerInvariant() } else { '' }
   if ($markColor -notmatch '^#[0-9a-f]{6}$') { $markColor = '' }
+  $bubbleEnabled = if ($null -ne $Item.bubbleEnabled) { [System.Convert]::ToBoolean($Item.bubbleEnabled) } else { $false }
+  $bubbleText = if ($null -ne $Item.bubbleText) { [string]$Item.bubbleText } else { '' }
+  if ($bubbleText.Length -gt 500) { $bubbleText = $bubbleText.Substring(0, 500) }
+  $bubbleFontSize = ConvertTo-SafeDouble -Value $Item.bubbleFontSize -Fallback 48 -Min 12 -Max 160
+  $bubbleFontFamilies = @(
+    'Segoe UI, sans-serif', 'Arial, sans-serif', 'Verdana, sans-serif', 'Tahoma, sans-serif',
+    'Georgia, serif', "'Times New Roman', serif", "'Courier New', monospace",
+    'Consolas, monospace', 'Impact, sans-serif', "'Comic Sans MS', cursive"
+  )
+  $bubbleFontFamily = if ($null -ne $Item.bubbleFontFamily) { [string]$Item.bubbleFontFamily } else { 'Segoe UI, sans-serif' }
+  if ($bubbleFontFamilies -notcontains $bubbleFontFamily) { $bubbleFontFamily = 'Segoe UI, sans-serif' }
+  $bubbleTextStyles = @('normal', 'bold', 'italic', 'boldItalic', 'outline', 'glow')
+  $bubbleTextStyle = if ($null -ne $Item.bubbleTextStyle) { [string]$Item.bubbleTextStyle } else { 'bold' }
+  if ($bubbleTextStyles -notcontains $bubbleTextStyle) { $bubbleTextStyle = 'bold' }
+  $bubbleTextColor = if ($null -ne $Item.bubbleTextColor) { ([string]$Item.bubbleTextColor).Trim().ToLowerInvariant() } else { '#ffffff' }
+  if ($bubbleTextColor -notmatch '^#[0-9a-f]{6}$') { $bubbleTextColor = '#ffffff' }
+  $bubbleAnimations = @('none', 'fade', 'fromTop', 'fromBottom', 'fromLeft', 'fromRight', 'zoom', 'bounce')
+  $bubbleAnimation = if ($null -ne $Item.bubbleAnimation) { [string]$Item.bubbleAnimation } else { 'fade' }
+  if ($bubbleAnimations -notcontains $bubbleAnimation) { $bubbleAnimation = 'fade' }
+  $bubbleAnimationUnits = @('together', 'words', 'letters')
+  $bubbleAnimationUnit = if ($null -ne $Item.bubbleAnimationUnit) { [string]$Item.bubbleAnimationUnit } else { 'together' }
+  if ($bubbleAnimationUnits -notcontains $bubbleAnimationUnit) { $bubbleAnimationUnit = 'together' }
+  $bubbleAnimationDuration = ConvertTo-SafeDouble -Value $Item.bubbleAnimationDuration -Fallback 0.7 -Min 0.2 -Max 3
+  $bubbleReadFromFile = if ($null -ne $Item.bubbleReadFromFile) { [System.Convert]::ToBoolean($Item.bubbleReadFromFile) } else { $false }
+  $bubbleTextFile = if ($null -ne $Item.bubbleTextFile) { ([string]$Item.bubbleTextFile).Trim() } else { '' }
+  $bubbleAntialias = if ($null -ne $Item.bubbleAntialias) { [System.Convert]::ToBoolean($Item.bubbleAntialias) } else { $true }
+  $bubbleTextTransforms = @('none', 'uppercase', 'lowercase', 'capitalize')
+  $bubbleTextTransform = if ($null -ne $Item.bubbleTextTransform) { [string]$Item.bubbleTextTransform } else { 'none' }
+  if ($bubbleTextTransforms -notcontains $bubbleTextTransform) { $bubbleTextTransform = 'none' }
+  $bubbleVertical = if ($null -ne $Item.bubbleVertical) { [System.Convert]::ToBoolean($Item.bubbleVertical) } else { $false }
+  $bubbleTextOpacity = ConvertTo-SafeDouble -Value $Item.bubbleTextOpacity -Fallback 100 -Min 0 -Max 100
+  $bubbleGradientEnabled = if ($null -ne $Item.bubbleGradientEnabled) { [System.Convert]::ToBoolean($Item.bubbleGradientEnabled) } else { $false }
+  $bubbleGradientColor = if ($null -ne $Item.bubbleGradientColor) { ([string]$Item.bubbleGradientColor).Trim().ToLowerInvariant() } else { '#000000' }
+  if ($bubbleGradientColor -notmatch '^#[0-9a-f]{6}$') { $bubbleGradientColor = '#000000' }
+  $bubbleGradientOpacity = ConvertTo-SafeDouble -Value $Item.bubbleGradientOpacity -Fallback 0 -Min 0 -Max 100
+  $bubbleGradientAngle = ConvertTo-SafeDouble -Value $Item.bubbleGradientAngle -Fallback 90 -Min 0 -Max 360
+  $bubbleTextAligns = @('left', 'center', 'right')
+  $bubbleTextAlign = if ($null -ne $Item.bubbleTextAlign) { [string]$Item.bubbleTextAlign } else { 'center' }
+  if ($bubbleTextAligns -notcontains $bubbleTextAlign) { $bubbleTextAlign = 'center' }
+  $bubbleVerticalAligns = @('top', 'center', 'bottom')
+  $bubbleVerticalAlign = if ($null -ne $Item.bubbleVerticalAlign) { [string]$Item.bubbleVerticalAlign } else { 'center' }
+  if ($bubbleVerticalAligns -notcontains $bubbleVerticalAlign) { $bubbleVerticalAlign = 'center' }
+  $bubbleOutlineEnabled = if ($null -ne $Item.bubbleOutlineEnabled) { [System.Convert]::ToBoolean($Item.bubbleOutlineEnabled) } else { $false }
+  $bubbleOutlineColor = if ($null -ne $Item.bubbleOutlineColor) { ([string]$Item.bubbleOutlineColor).Trim().ToLowerInvariant() } else { '#000000' }
+  if ($bubbleOutlineColor -notmatch '^#[0-9a-f]{6}$') { $bubbleOutlineColor = '#000000' }
+  $bubbleOutlineSize = ConvertTo-SafeDouble -Value $Item.bubbleOutlineSize -Fallback 2 -Min 1 -Max 12
+  $bubbleChatlogEnabled = if ($null -ne $Item.bubbleChatlogEnabled) { [System.Convert]::ToBoolean($Item.bubbleChatlogEnabled) } else { $false }
+  $bubbleChatlogLines = Clamp-Int -Value $Item.bubbleChatlogLines -Fallback 6 -Min 1 -Max 20
+  $bubbleLayer = if ($null -ne $Item.bubbleLayer -and ([string]$Item.bubbleLayer).Trim().ToLowerInvariant() -eq 'behind') { 'behind' } else { 'above' }
+  $bubbleAssetPath = if ($null -ne $Item.bubbleAssetPath) { ([string]$Item.bubbleAssetPath).Trim() } else { '' }
+  $bubbleArea = if ($null -ne $Item.bubbleArea) { $Item.bubbleArea } else { $null }
+  $bubbleWidth = ConvertTo-SafeDouble -Value $(if ($null -ne $bubbleArea) { $bubbleArea.width } else { 78 }) -Fallback 78 -Min 8 -Max 100
+  $bubbleHeight = ConvertTo-SafeDouble -Value $(if ($null -ne $bubbleArea) { $bubbleArea.height } else { 18 }) -Fallback 18 -Min 5 -Max 100
+  $bubbleX = ConvertTo-SafeDouble -Value $(if ($null -ne $bubbleArea) { $bubbleArea.x } else { 11 }) -Fallback 11 -Min 0 -Max (100 - $bubbleWidth)
+  $bubbleY = ConvertTo-SafeDouble -Value $(if ($null -ne $bubbleArea) { $bubbleArea.y } else { 77 }) -Fallback 77 -Min 0 -Max (100 - $bubbleHeight)
+  # Innerer Textbereich: Rechteck in PROZENT DER BUBBLE (nicht des Monitors).
+  # Begrenzt, wo der Bubble-Text sitzt; das Overlay verkleinert die Schrift
+  # automatisch, bis der Text hineinpasst (bubbleFontSize = Obergrenze).
+  $bubbleTextAreaOn = if ($null -ne $Item.bubbleTextAreaOn) { [System.Convert]::ToBoolean($Item.bubbleTextAreaOn) } else { $false }
+  $bubbleTextAreaSrc = if ($null -ne $Item.bubbleTextArea) { $Item.bubbleTextArea } else { $null }
+  $bubbleTextWidth = ConvertTo-SafeDouble -Value $(if ($null -ne $bubbleTextAreaSrc) { $bubbleTextAreaSrc.width } else { 84 }) -Fallback 84 -Min 10 -Max 100
+  $bubbleTextHeight = ConvertTo-SafeDouble -Value $(if ($null -ne $bubbleTextAreaSrc) { $bubbleTextAreaSrc.height } else { 80 }) -Fallback 80 -Min 10 -Max 100
+  $bubbleTextX = ConvertTo-SafeDouble -Value $(if ($null -ne $bubbleTextAreaSrc) { $bubbleTextAreaSrc.x } else { 8 }) -Fallback 8 -Min 0 -Max (100 - $bubbleTextWidth)
+  $bubbleTextY = ConvertTo-SafeDouble -Value $(if ($null -ne $bubbleTextAreaSrc) { $bubbleTextAreaSrc.y } else { 10 }) -Fallback 10 -Min 0 -Max (100 - $bubbleTextHeight)
+  # "Nur Text": blendet die komplette Bubble-Optik aus, es bleibt nur der Text.
+  $bubbleTextOnly = if ($null -ne $Item.bubbleTextOnly) { [System.Convert]::ToBoolean($Item.bubbleTextOnly) } else { $false }
 
   return [ordered]@{
     id = $id
@@ -456,6 +559,42 @@ function Normalize-VideoOverlayItem {
     tolerance = Clamp-Int -Value $Item.tolerance -Fallback 20 -Min 0 -Max 100
     sideBars = $sideBars
     align = $align
+    freePosition = $freePosition
+    freePositionOutside = $freePositionOutside
+    videoArea = [ordered]@{ x = $areaX; y = $areaY; width = $areaWidth; height = $areaHeight }
+    videoCrop = [ordered]@{ left = $cropLeft; top = $cropTop; right = $cropRight; bottom = $cropBottom }
+    bubbleEnabled = $bubbleEnabled
+    bubbleText = $bubbleText
+    bubbleFontSize = $bubbleFontSize
+    bubbleFontFamily = $bubbleFontFamily
+    bubbleTextStyle = $bubbleTextStyle
+    bubbleTextColor = $bubbleTextColor
+    bubbleAnimation = $bubbleAnimation
+    bubbleAnimationUnit = $bubbleAnimationUnit
+    bubbleAnimationDuration = $bubbleAnimationDuration
+    bubbleReadFromFile = $bubbleReadFromFile
+    bubbleTextFile = $bubbleTextFile
+    bubbleAntialias = $bubbleAntialias
+    bubbleTextTransform = $bubbleTextTransform
+    bubbleVertical = $bubbleVertical
+    bubbleTextOpacity = $bubbleTextOpacity
+    bubbleGradientEnabled = $bubbleGradientEnabled
+    bubbleGradientColor = $bubbleGradientColor
+    bubbleGradientOpacity = $bubbleGradientOpacity
+    bubbleGradientAngle = $bubbleGradientAngle
+    bubbleTextAlign = $bubbleTextAlign
+    bubbleVerticalAlign = $bubbleVerticalAlign
+    bubbleOutlineEnabled = $bubbleOutlineEnabled
+    bubbleOutlineColor = $bubbleOutlineColor
+    bubbleOutlineSize = $bubbleOutlineSize
+    bubbleChatlogEnabled = $bubbleChatlogEnabled
+    bubbleChatlogLines = $bubbleChatlogLines
+    bubbleLayer = $bubbleLayer
+    bubbleAssetPath = $bubbleAssetPath
+    bubbleArea = [ordered]@{ x = $bubbleX; y = $bubbleY; width = $bubbleWidth; height = $bubbleHeight }
+    bubbleTextAreaOn = $bubbleTextAreaOn
+    bubbleTextArea = [ordered]@{ x = $bubbleTextX; y = $bubbleTextY; width = $bubbleTextWidth; height = $bubbleTextHeight }
+    bubbleTextOnly = $bubbleTextOnly
     group = $group
     groupTrigger = $groupTrigger
     markColor = $markColor
@@ -821,7 +960,95 @@ function Write-PauseHotkeyJson {
 # --- Serverseitiger UI-Zustand: ERSETZT den bisherigen localStorage der Einstellungsseite ---
 # Ein einziges JSON-Objekt {schluessel:wert(string)}. Dadurch sind alle Einstellungen
 # browserunabhaengig (jeder Browser + das Overlay lesen denselben Stand von der Platte).
+$UiStatePrivateKeys = @(
+  'kappi.twitch.token',
+  'kappi.twitch.clientId',
+  'kappi.streamerbot.websocketPassword'
+)
+function Test-UiStatePrivateKey {
+  param([string]$Key)
+  return $UiStatePrivateKeys -contains ([string]$Key)
+}
+function Convert-UiStateMapToJson {
+  param([hashtable]$Map)
+  $parts = @()
+  foreach ($k in @($Map.Keys | Sort-Object)) {
+    $parts += ('"' + (Escape-JsonString ([string]$k)) + '":"' + (Escape-JsonString ([string]$Map[$k])) + '"')
+  }
+  return '{' + ($parts -join ',') + '}'
+}
+function Read-PrivateUiStateMap {
+  $map = @{}
+  try {
+    if (Test-Path -LiteralPath $PrivateUiStatePath -PathType Leaf) {
+      $encoded = (Get-Content -LiteralPath $PrivateUiStatePath -Raw -ErrorAction Stop).Trim()
+      if ($encoded) {
+        $protected = [Convert]::FromBase64String($encoded)
+        $entropy = [Text.Encoding]::UTF8.GetBytes('FreakShow.UiPrivateState.v1')
+        $plain = [Security.Cryptography.ProtectedData]::Unprotect(
+          $protected,
+          $entropy,
+          [Security.Cryptography.DataProtectionScope]::CurrentUser
+        )
+        $json = [Text.Encoding]::UTF8.GetString($plain)
+        $obj = $json | ConvertFrom-Json -ErrorAction Stop
+        if ($obj) {
+          foreach ($p in $obj.PSObject.Properties) {
+            if (Test-UiStatePrivateKey ([string]$p.Name)) { $map[[string]$p.Name] = [string]$p.Value }
+          }
+        }
+      }
+    }
+  } catch {
+    Write-Host ('Private UI state could not be read: ' + $_.Exception.Message)
+  }
+  return $map
+}
+function Write-PrivateUiStateMap {
+  param([hashtable]$Map)
+  try {
+    $dir = Split-Path -Parent $PrivateUiStatePath
+    if ($dir -and -not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+    $plain = [Text.Encoding]::UTF8.GetBytes((Convert-UiStateMapToJson $Map))
+    $entropy = [Text.Encoding]::UTF8.GetBytes('FreakShow.UiPrivateState.v1')
+    $protected = [Security.Cryptography.ProtectedData]::Protect(
+      $plain,
+      $entropy,
+      [Security.Cryptography.DataProtectionScope]::CurrentUser
+    )
+    [Convert]::ToBase64String($protected) | Set-Content -LiteralPath $PrivateUiStatePath -Encoding ASCII -NoNewline
+    return $true
+  } catch {
+    Write-Host ('Private UI state could not be written: ' + $_.Exception.Message)
+    return $false
+  }
+}
+function Move-LegacyPrivateUiState {
+  $publicMap = @{}
+  try {
+    if (Test-Path -LiteralPath $UiStatePath) {
+      $raw = Get-Content -LiteralPath $UiStatePath -Raw -ErrorAction Stop
+      if (-not [string]::IsNullOrWhiteSpace($raw)) {
+        $obj = $raw | ConvertFrom-Json -ErrorAction Stop
+        if ($obj) { foreach ($p in $obj.PSObject.Properties) { $publicMap[[string]$p.Name] = [string]$p.Value } }
+      }
+    }
+  } catch {}
+  $privateMap = Read-PrivateUiStateMap
+  $changed = $false
+  foreach ($key in $UiStatePrivateKeys) {
+    if ($publicMap.ContainsKey($key)) {
+      $privateMap[$key] = [string]$publicMap[$key]
+      $publicMap.Remove($key)
+      $changed = $true
+    }
+  }
+  if ($changed -and (Write-PrivateUiStateMap $privateMap)) {
+    try { Set-Content -LiteralPath $UiStatePath -Value (Convert-UiStateMapToJson $publicMap) -Encoding UTF8 } catch {}
+  }
+}
 function Read-UiStateJson {
+  Move-LegacyPrivateUiState
   try {
     if (Test-Path -LiteralPath $UiStatePath) {
       $raw = Get-Content -LiteralPath $UiStatePath -Raw -ErrorAction Stop
@@ -829,6 +1056,10 @@ function Read-UiStateJson {
     }
   } catch {}
   return '{}'
+}
+function Read-PrivateUiStateJson {
+  Move-LegacyPrivateUiState
+  return (Convert-UiStateMapToJson (Read-PrivateUiStateMap))
 }
 function Write-UiStateJson {
   param([string]$Body)
@@ -846,7 +1077,9 @@ function Write-UiStateJson {
 # (Grundlage der Live-Sync zwischen mehreren Tabs/PCs). Die Bridge arbeitet sequentiell -> rennfrei.
 function Merge-UiStateJson {
   param([string]$Body)
+  Move-LegacyPrivateUiState
   $cur = @{}
+  $private = Read-PrivateUiStateMap
   try {
     if (Test-Path -LiteralPath $UiStatePath) {
       $raw = Get-Content -LiteralPath $UiStatePath -Raw -ErrorAction Stop
@@ -860,18 +1093,629 @@ function Merge-UiStateJson {
     $delta = if ([string]::IsNullOrWhiteSpace($Body)) { $null } else { $Body | ConvertFrom-Json -ErrorAction Stop }
   } catch { return '{"ok":false,"error":"bad json"}' }
   if ($null -ne $delta) {
-    if ($null -ne $delta.set) { foreach ($p in $delta.set.PSObject.Properties) { $cur[$p.Name] = [string]$p.Value } }
-    if ($null -ne $delta.del) { foreach ($k in @($delta.del)) { $kk = [string]$k; if ($cur.ContainsKey($kk)) { $cur.Remove($kk) } } }
+    if ($null -ne $delta.set) {
+      foreach ($p in $delta.set.PSObject.Properties) {
+        $key = [string]$p.Name
+        if (Test-UiStatePrivateKey $key) { $private[$key] = [string]$p.Value }
+        else { $cur[$key] = [string]$p.Value }
+      }
+    }
+    if ($null -ne $delta.del) {
+      foreach ($k in @($delta.del)) {
+        $kk = [string]$k
+        if (Test-UiStatePrivateKey $kk) {
+          if ($private.ContainsKey($kk)) { $private.Remove($kk) }
+        } elseif ($cur.ContainsKey($kk)) {
+          $cur.Remove($kk)
+        }
+      }
+    }
   }
-  $parts = @()
-  foreach ($k in $cur.Keys) { $parts += ('"' + (Escape-JsonString ([string]$k)) + '":"' + (Escape-JsonString ([string]$cur[$k])) + '"') }
-  $json = '{' + ($parts -join ',') + '}'
+  $json = Convert-UiStateMapToJson $cur
   try {
     $dir = Split-Path -Parent $UiStatePath
     if ($dir -and -not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
     Set-Content -LiteralPath $UiStatePath -Value $json -Encoding UTF8
+    if (-not (Write-PrivateUiStateMap $private)) { return '{"ok":false,"error":"private write failed"}' }
   } catch { return '{"ok":false,"error":"write failed"}' }
   return '{"ok":true}'
+}
+
+# --- Game-Steuerung: gemeinsame Konfiguration fuer alle Browser/PCs + sichere AHK-Ausfuehrung ---
+function Normalize-GameProcessName {
+  param([object]$Value)
+  $name = ([string]$Value).Trim()
+  if ($name -match '(?i)\.exe$') { $name = $name.Substring(0, $name.Length - 4).Trim() }
+  if (-not $name -or $name.Length -gt 120) { return '' }
+  # Keine Pfade, Wildcards, Argumente oder Shell-Zeichen. Der Name wird spaeter
+  # ausschliesslich exakt gegen ProcessName verglichen.
+  if ($name -notmatch '^[A-Za-z0-9][A-Za-z0-9_. -]{0,119}$') { return '' }
+  return $name
+}
+
+function Test-ProtectedGameProcessName {
+  param([string]$Name)
+  $nameLower = ([string]$Name).Trim().ToLowerInvariant()
+  $protected = @(
+    'freakshow','freakshowupdater','powershell','pwsh','explorer','streamer.bot','streamerbot',
+    'obs64','obs32','system','idle','registry','smss','csrss','wininit','winlogon','services',
+    'lsass','svchost','fontdrvhost','dwm','sihost','taskhostw','conhost','audiodg','spoolsv'
+  )
+  return $protected -contains $nameLower
+}
+
+function Get-ExactGameProcesses {
+  param([string]$Name)
+  $safeName = Normalize-GameProcessName $Name
+  if (-not $safeName -or (Test-ProtectedGameProcessName $safeName)) { return @() }
+  $result = @()
+  foreach ($process in @(Get-Process -ErrorAction SilentlyContinue)) {
+    try {
+      if ($process.Id -ne $PID -and ([string]$process.ProcessName).Equals($safeName, [System.StringComparison]::OrdinalIgnoreCase)) {
+        $result += $process
+      }
+    } catch {}
+  }
+  return @($result)
+}
+
+function Get-GameControlProcessesJson {
+  $entries = @{}
+  foreach ($process in @(Get-Process -ErrorAction SilentlyContinue)) {
+    try {
+      if ($process.Id -eq $PID -or $process.MainWindowHandle -eq 0) { continue }
+      $name = Normalize-GameProcessName $process.ProcessName
+      if (-not $name -or (Test-ProtectedGameProcessName $name)) { continue }
+      $key = $name.ToLowerInvariant()
+      $title = ([string]$process.MainWindowTitle).Trim()
+      if (-not $entries.ContainsKey($key)) {
+        $entries[$key] = [ordered]@{ name = $name; title = $(if ($title) { $title } else { $name }); instances = 1 }
+      } else {
+        $entries[$key].instances = [int]$entries[$key].instances + 1
+        if ($title -and ([string]$entries[$key].title -eq [string]$entries[$key].name)) { $entries[$key].title = $title }
+      }
+    } catch {}
+  }
+  $processes = @($entries.Values | Sort-Object @{ Expression = { ([string]$_.title).ToLowerInvariant() } })
+  return ([ordered]@{ ok = $true; processes = $processes } | ConvertTo-Json -Depth 5 -Compress)
+}
+
+function Start-DeferredGameProcessKill {
+  param([int[]]$ProcessIds, [int]$DelayMs)
+  $ids = @()
+  foreach ($rawId in @($ProcessIds)) {
+    $id = [int]$rawId
+    if ($id -gt 0 -and $id -ne $PID -and $ids -notcontains $id) { $ids += $id }
+  }
+  if ($ids.Count -eq 0) { return }
+  $delay = Clamp-Int -Value $DelayMs -Fallback 3000 -Min 500 -Max 30000
+  # Nur validierte Integer-IDs werden in den Hilfsprozess eingebaut. Dadurch gibt
+  # es keinen frei konfigurierbaren Shell-/PowerShell-Code in der Weboberflaeche.
+  $scriptText = 'Start-Sleep -Milliseconds ' + $delay + '; foreach ($targetId in @(' + ($ids -join ',') + ')) { Stop-Process -Id $targetId -Force -ErrorAction SilentlyContinue }'
+  $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($scriptText))
+  Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-EncodedCommand',$encoded) -WindowStyle Hidden | Out-Null
+}
+
+function Invoke-GameKillControl {
+  param([object]$Item, [string]$Id)
+  $processName = Normalize-GameProcessName $Item.processName
+  if (-not $processName) { throw 'Kein gültiges Spiel ausgewählt.' }
+  if (Test-ProtectedGameProcessName $processName) { throw 'Dieser Prozess ist geschützt und darf nicht beendet werden.' }
+  $targets = @(Get-ExactGameProcesses $processName)
+  if ($targets.Count -eq 0) { throw 'Das ausgewählte Spiel läuft nicht.' }
+  $modeRaw = ([string]$Item.killMode).Trim().ToLowerInvariant()
+  $mode = if ($modeRaw -eq 'force') { 'force' } elseif ($modeRaw -eq 'graceful') { 'graceful' } else { 'graceful-force' }
+  $timeoutMs = Clamp-Int -Value $Item.killTimeoutMs -Fallback 3000 -Min 500 -Max 30000
+  $ids = @($targets | ForEach-Object { [int]$_.Id })
+  $requested = 0
+  if ($mode -eq 'force') {
+    foreach ($process in $targets) {
+      try { Stop-Process -Id $process.Id -Force -ErrorAction Stop; $requested++ } catch {}
+    }
+  } else {
+    foreach ($process in $targets) {
+      try { if ($process.CloseMainWindow()) { $requested++ } } catch {}
+    }
+    if ($mode -eq 'graceful-force') { Start-DeferredGameProcessKill -ProcessIds $ids -DelayMs $timeoutMs }
+  }
+  return ([ordered]@{
+    ok = $true; id = $Id; actionType = 'kill'; processName = $processName; mode = $mode
+    instances = $targets.Count; requested = $requested; timeoutMs = $(if ($mode -eq 'graceful-force') { $timeoutMs } else { 0 })
+  } | ConvertTo-Json -Depth 4 -Compress)
+}
+
+function Normalize-GameControlKey {
+  param([object]$Value)
+  $key = ([string]$Value).Trim().ToUpperInvariant()
+  switch ($key) {
+    'ESCAPE' { $key = 'ESC' }
+    'RETURN' { $key = 'ENTER' }
+    'SPACEBAR' { $key = 'SPACE' }
+    'CONTROL' { $key = 'LCTRL' }
+    'CTRL' { $key = 'LCTRL' }
+    'STRG' { $key = 'LCTRL' }
+    'LCONTROL' { $key = 'LCTRL' }
+    'RCONTROL' { $key = 'RCTRL' }
+    'SHIFT' { $key = 'LSHIFT' }
+    'ALT' { $key = 'LALT' }
+    'LMENU' { $key = 'LALT' }
+    'RMENU' { $key = 'RALT' }
+    'ARROWUP' { $key = 'UP' }
+    'ARROWDOWN' { $key = 'DOWN' }
+    'ARROWLEFT' { $key = 'LEFT' }
+    'ARROWRIGHT' { $key = 'RIGHT' }
+    'PAGEUP' { $key = 'PGUP' }
+    'PAGEDOWN' { $key = 'PGDN' }
+  }
+  if ($key -match '^[A-Z0-9]$' -or $key -match '^F([1-9]|1[0-9]|2[0-4])$' -or $key -match '^SC[0-9A-F]{3}$') { return $key }
+  if (@('UP','DOWN','LEFT','RIGHT','SPACE','ENTER','TAB','ESC','BACKSPACE','DELETE','INSERT','HOME','END','PGUP','PGDN','LCTRL','RCTRL','LALT','RALT','LSHIFT','RSHIFT') -contains $key) { return $key }
+  return ''
+}
+
+function ConvertTo-GameControlKeyArray {
+  param([object]$Value)
+  $result = @()
+  foreach ($raw in @($Value)) {
+    foreach ($part in ([string]$raw -split '/')) {
+      $key = Normalize-GameControlKey $part
+      if ($key -and $result -notcontains $key) { $result += $key }
+    }
+  }
+  return $result
+}
+
+function Normalize-GameControlsObject {
+  param([object]$Incoming)
+  $keyboardLayout = 'de-iso'
+  if ($null -ne $Incoming -and ([string]$Incoming.keyboardLayout).Trim().ToLowerInvariant() -eq 'en-ansi') { $keyboardLayout = 'en-ansi' }
+  $groups = @()
+  if ($null -ne $Incoming -and $null -ne $Incoming.groups) {
+    foreach ($rawGroup in @($Incoming.groups)) {
+      $group = ([string]$rawGroup).Trim()
+      if ($group.Length -gt 80) { $group = $group.Substring(0, 80) }
+      if ($group -and $groups -notcontains $group) { $groups += $group }
+    }
+  }
+
+  $items = @()
+  if ($null -ne $Incoming -and $null -ne $Incoming.items) {
+    foreach ($source in @($Incoming.items)) {
+      if ($null -eq $source) { continue }
+      $id = ([string]$source.id).Trim() -replace '[^A-Za-z0-9._-]', ''
+      if (-not $id) { $id = 'game-' + [guid]::NewGuid().ToString('N') }
+      if ($id.Length -gt 120) { $id = $id.Substring(0, 120) }
+      $name = ([string]$source.name).Trim(); if (-not $name) { $name = 'Game-Steuerung' }; if ($name.Length -gt 80) { $name = $name.Substring(0, 80) }
+      $group = ([string]$source.group).Trim(); if ($group.Length -gt 80) { $group = $group.Substring(0, 80) }
+      if ($group -and $groups -notcontains $group) { $groups += $group }
+      $enabled = if ($null -ne $source.enabled) { [bool]$source.enabled } else { $true }
+      $actionType = if (([string]$source.actionType).Trim().ToLowerInvariant() -eq 'kill') { 'kill' } else { 'keyboard' }
+      $triggerOn = if ($null -ne $source.triggerOn) { [bool]$source.triggerOn } else { $false }
+      $tapAfter = if ($null -ne $source.tapAfter) { [bool]$source.tapAfter } else { $false }
+      $blockPhysical = if ($null -ne $source.blockPhysical) { [bool]$source.blockPhysical } else { $true }
+      $dynamicInput = if ($actionType -eq 'keyboard' -and $null -ne $source.dynamicInput) { [bool]$source.dynamicInput } else { $false }
+      $holdMs = Clamp-Int -Value $source.holdMs -Fallback 5000 -Min 50 -Max 600000
+      $requestedMode = ([string]$source.actionMode).Trim().ToLowerInvariant()
+      $actionMode = if ($requestedMode -eq 'repeat') { 'repeat' } elseif ($requestedMode -eq 'tap') { 'tap' } elseif ($requestedMode -eq 'block') { 'block' } else { 'hold' }
+      $repeatIntervalMs = Clamp-Int -Value $source.repeatIntervalMs -Fallback 100 -Min 25 -Max 2000
+      $trigger = ([string]$source.trigger).Trim(); if ($trigger.Length -gt 120) { $trigger = $trigger.Substring(0, 120) }
+      $processName = Normalize-GameProcessName $source.processName
+      $killModeRaw = ([string]$source.killMode).Trim().ToLowerInvariant()
+      $killMode = if ($killModeRaw -eq 'force') { 'force' } elseif ($killModeRaw -eq 'graceful') { 'graceful' } else { 'graceful-force' }
+      $killTimeoutMs = Clamp-Int -Value $source.killTimeoutMs -Fallback 3000 -Min 500 -Max 30000
+      # Verknuepfung mit einem vorhandenen, im Bilder-Reiter positionierten Bild.
+      # Pfad und alte Positionsfelder bleiben als Rueckwaertskompatibilitaet erhalten.
+      $statusImageId = ([string]$source.statusImageId).Trim() -replace '[^A-Za-z0-9._-]', ''
+      if ($statusImageId.Length -gt 120) { $statusImageId = $statusImageId.Substring(0, 120) }
+      $statusImagePath = ([string]$source.statusImagePath).Trim().Replace('\', '/').TrimStart('/')
+      if ($statusImagePath.Length -gt 500 -or $statusImagePath -match '(^|/)\.\.(/|$)' -or $statusImagePath -match '[\x00-\x1F:*?"<>|]') { $statusImagePath = '' }
+      $statusImageName = ([string]$source.statusImageName).Trim()
+      if (-not $statusImageName -and $statusImagePath) { $statusImageName = [System.IO.Path]::GetFileNameWithoutExtension($statusImagePath) }
+      if ($statusImageName.Length -gt 80) { $statusImageName = $statusImageName.Substring(0, 80) }
+      $statusImageOn = if (($statusImageId -or $statusImagePath) -and $null -ne $source.statusImageOn) { [bool]$source.statusImageOn } else { $false }
+      $statusImageX = Clamp-Int -Value $source.statusImageX -Fallback 35 -Min 0 -Max 99
+      $statusImageY = Clamp-Int -Value $source.statusImageY -Fallback 35 -Min 0 -Max 99
+      $statusImageWidth = Clamp-Int -Value $source.statusImageWidth -Fallback 30 -Min 1 -Max 100
+      $statusImageHeight = Clamp-Int -Value $source.statusImageHeight -Fallback 30 -Min 1 -Max 100
+      if ($statusImageX + $statusImageWidth -gt 100) { $statusImageX = 100 - $statusImageWidth }
+      if ($statusImageY + $statusImageHeight -gt 100) { $statusImageY = 100 - $statusImageHeight }
+      $statusImageOpacity = Clamp-Int -Value $source.statusImageOpacity -Fallback 100 -Min 0 -Max 100
+      $items += [ordered]@{
+        id = $id; name = $name; group = $group; enabled = $enabled; actionType = $actionType
+        keys = @(ConvertTo-GameControlKeyArray $source.keys); holdMs = $holdMs
+        actionMode = $actionMode; repeatIntervalMs = $repeatIntervalMs
+        tapAfter = $tapAfter; blockPhysical = $blockPhysical; dynamicInput = $dynamicInput
+        processName = $processName; killMode = $killMode; killTimeoutMs = $killTimeoutMs
+        trigger = $trigger; triggerOn = $triggerOn
+        statusImageOn = $statusImageOn; statusImageId = $statusImageId; statusImagePath = $statusImagePath; statusImageName = $statusImageName
+        statusImageX = $statusImageX; statusImageY = $statusImageY
+        statusImageWidth = $statusImageWidth; statusImageHeight = $statusImageHeight
+        statusImageOpacity = $statusImageOpacity
+      }
+    }
+  }
+
+  $groupTriggers = [ordered]@{}
+  if ($null -ne $Incoming -and $null -ne $Incoming.groupTriggers) {
+    foreach ($property in $Incoming.groupTriggers.PSObject.Properties) {
+      $group = ([string]$property.Name).Trim()
+      $trigger = ([string]$property.Value).Trim()
+      if ($group.Length -gt 80) { $group = $group.Substring(0, 80) }
+      if ($trigger.Length -gt 120) { $trigger = $trigger.Substring(0, 120) }
+      if ($group -and $trigger -and $groups -contains $group) { $groupTriggers[$group] = $trigger }
+    }
+  }
+
+  $groupColors = [ordered]@{}
+  if ($null -ne $Incoming -and $null -ne $Incoming.groupColors) {
+    foreach ($property in $Incoming.groupColors.PSObject.Properties) {
+      $group = ([string]$property.Name).Trim()
+      $color = ([string]$property.Value).Trim().ToLowerInvariant()
+      if ($group.Length -gt 80) { $group = $group.Substring(0, 80) }
+      if ($group -and $color -match '^#[0-9a-f]{6}$' -and $groups -contains $group) { $groupColors[$group] = $color }
+    }
+  }
+
+  $collapsed = [ordered]@{}
+  if ($null -ne $Incoming -and $null -ne $Incoming.collapsed) {
+    foreach ($property in $Incoming.collapsed.PSObject.Properties) {
+      if ([bool]$property.Value) { $collapsed[[string]$property.Name] = 1 }
+    }
+  }
+  return [ordered]@{ ok = $true; groups = $groups; items = $items; collapsed = $collapsed; groupTriggers = $groupTriggers; groupColors = $groupColors; keyboardLayout = $keyboardLayout; version = 1; updatedAt = (Get-NowMilliseconds) }
+}
+
+function Read-GameControlsJson {
+  try {
+    if (Test-Path -LiteralPath $GameControlsPath) {
+      $raw = Get-Content -LiteralPath $GameControlsPath -Raw -ErrorAction Stop
+      if (-not [string]::IsNullOrWhiteSpace($raw)) { return $raw }
+    }
+  } catch {}
+  return '{"ok":true,"groups":[],"items":[],"collapsed":{},"groupTriggers":{},"groupColors":{},"version":1}'
+}
+
+function Write-GameControlsJson {
+  param([object]$Incoming)
+  $previous = $null
+  try { $previous = (Read-GameControlsJson) | ConvertFrom-Json -ErrorAction Stop } catch {}
+  $normalized = Normalize-GameControlsObject $Incoming
+  $json = $normalized | ConvertTo-Json -Depth 10 -Compress
+  try {
+    $dir = Split-Path -Parent $GameControlsPath
+    if ($dir -and -not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+    Set-Content -LiteralPath $GameControlsPath -Value $json -Encoding UTF8
+  } catch { throw 'Game-Steuerungen konnten nicht gespeichert werden.' }
+  # Ein ausgeschalteter oder geloeschter Eintrag muss laufende Tastendruecke
+  # sofort freigeben. Das ist die serverseitige Absicherung fuer alle Browser/PCs.
+  if ($null -ne $previous) {
+    foreach ($oldItem in @($previous.items)) {
+      if ($null -eq $oldItem -or $oldItem.enabled -eq $false) { continue }
+      $oldId = ([string]$oldItem.id).Trim()
+      if (-not $oldId) { continue }
+      $stillEnabled = $false
+      foreach ($newItem in @($normalized.items)) {
+        if ([string]$newItem.id -eq $oldId -and $newItem.enabled -ne $false) { $stillEnabled = $true; break }
+      }
+      if (-not $stillEnabled) { Stop-GameControlById -Id $oldId | Out-Null }
+    }
+  }
+  return $json
+}
+
+function Remove-FinishedGameControlRuns {
+  $active = @()
+  foreach ($run in @($script:GameControlRuns)) {
+    $finished = $false
+    try { $finished = $run.Process.HasExited } catch { $finished = $true }
+    if ($finished) {
+      try { if (Test-Path -LiteralPath $run.CancelPath) { Remove-Item -LiteralPath $run.CancelPath -Force } } catch {}
+    } else {
+      $active += $run
+    }
+  }
+  $script:GameControlRuns = @($active)
+}
+
+function Stop-GameControlById {
+  param([string]$Id)
+  $Id = ($Id.Trim() -replace '[^A-Za-z0-9._-]', '')
+  if (-not $Id) { return 0 }
+  Remove-FinishedGameControlRuns
+  $count = 0
+  foreach ($run in @($script:GameControlRuns)) {
+    if ([string]$run.Id -ne $Id) { continue }
+    try {
+      if (Test-Path -LiteralPath $run.CancelPath) { Remove-Item -LiteralPath $run.CancelPath -Force }
+      $count++
+    } catch {}
+  }
+  return $count
+}
+
+function Stop-GameControl {
+  param([object]$Incoming)
+  $id = if ($null -ne $Incoming -and $null -ne $Incoming.id) { (([string]$Incoming.id).Trim() -replace '[^A-Za-z0-9._-]', '') } else { '' }
+  if (-not $id) { throw 'Game-Steuerung ohne ID.' }
+  $count = Stop-GameControlById -Id $id
+  return ('{"ok":true,"id":"' + (Escape-JsonString $id) + '","signalled":' + $count + '}')
+}
+
+function Find-AutoHotkeyV2 {
+  $candidates = @(
+    (Join-Path $AutoHotkeyRuntimeRoot 'AutoHotkey64.exe'),
+    (Join-Path $env:ProgramFiles 'AutoHotkey\v2\AutoHotkey64.exe'),
+    (Join-Path $env:ProgramFiles 'AutoHotkey\v2\AutoHotkey.exe')
+  )
+  foreach ($candidate in $candidates) { if ($candidate -and (Test-Path -LiteralPath $candidate -PathType Leaf)) { return $candidate } }
+  return ''
+}
+
+function Install-AutoHotkeyV2 {
+  $installer = Join-Path $GameAutomationRoot 'install-autohotkey-runtime.ps1'
+  if (-not (Test-Path -LiteralPath $installer -PathType Leaf)) {
+    throw 'automation\install-autohotkey-runtime.ps1 fehlt.'
+  }
+
+  . $installer -RuntimeRoot $AutoHotkeyRuntimeRoot -Quiet
+  $runner = Install-FreakShowAutoHotkeyRuntime -TargetRoot $AutoHotkeyRuntimeRoot
+  if (-not $runner -or -not (Test-Path -LiteralPath $runner -PathType Leaf)) {
+    throw 'AutoHotkey v2 konnte nicht automatisch eingerichtet werden.'
+  }
+  return $runner
+}
+
+function Start-AutoHotkeyV2Bootstrap {
+  if (Find-AutoHotkeyV2) { return }
+  $installer = Join-Path $GameAutomationRoot 'install-autohotkey-runtime.ps1'
+  if (-not (Test-Path -LiteralPath $installer -PathType Leaf)) { return }
+  try {
+    $arguments = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $installer + '" -RuntimeRoot "' + $AutoHotkeyRuntimeRoot + '" -Quiet'
+    Start-Process -FilePath 'powershell.exe' -ArgumentList $arguments -WorkingDirectory $GameAutomationRoot -WindowStyle Hidden | Out-Null
+  } catch {}
+}
+
+function Invoke-GameControl {
+  param([object]$Incoming)
+  $id = if ($null -ne $Incoming -and $null -ne $Incoming.id) { (([string]$Incoming.id).Trim() -replace '[^A-Za-z0-9._-]', '') } else { '' }
+  if (-not $id) { throw 'Game-Steuerung ohne ID.' }
+  $force = ($null -ne $Incoming -and $Incoming.force -eq $true)
+  $config = (Read-GameControlsJson) | ConvertFrom-Json -ErrorAction Stop
+  $item = $null
+  foreach ($candidate in @($config.items)) { if ([string]$candidate.id -eq $id) { $item = $candidate; break } }
+  if ($null -eq $item) { throw 'Game-Steuerung nicht gefunden.' }
+  if ($item.enabled -eq $false) { throw 'Game-Steuerung ist ausgeschaltet.' }
+  if (-not $force -and $item.triggerOn -ne $true) { throw 'Streamer.bot-Trigger ist ausgeschaltet.' }
+
+  if (([string]$item.actionType).Trim().ToLowerInvariant() -eq 'kill') {
+    return (Invoke-GameKillControl -Item $item -Id $id)
+  }
+
+  $allowedKeys = @(ConvertTo-GameControlKeyArray $item.keys)
+  $keys = @($allowedKeys)
+  $keyOverride = if ($null -ne $Incoming -and $null -ne $Incoming.keyOverride) { Normalize-GameControlKey $Incoming.keyOverride } else { '' }
+  if ($keyOverride) {
+    if ($item.dynamicInput -ne $true) { throw 'Dynamische Tasteneingabe ist ausgeschaltet.' }
+    if ($allowedKeys -notcontains $keyOverride) { throw 'Diese Taste ist für die Kanalpunkt-Eingabe nicht freigegeben.' }
+    # Beim Richtungswechsel muss die bisher gehaltene Taste zuerst sofort frei
+    # werden. Das AHK-Skript reagiert innerhalb seines kurzen Cancel-Polls.
+    Stop-GameControlById -Id $id | Out-Null
+    $keys = @($keyOverride)
+  }
+  if ($keys.Count -eq 0) { throw 'Keine Taste oder Tastenkombination ausgewählt.' }
+  $holdMs = Clamp-Int -Value $item.holdMs -Fallback 5000 -Min 50 -Max 600000
+  $requestedMode = ([string]$item.actionMode).Trim().ToLowerInvariant()
+  $actionMode = if ($requestedMode -eq 'repeat') { 'repeat' } elseif ($requestedMode -eq 'tap') { 'tap' } elseif ($requestedMode -eq 'block') { 'block' } else { 'hold' }
+  $repeatIntervalMs = Clamp-Int -Value $item.repeatIntervalMs -Fallback 100 -Min 25 -Max 2000
+  $tapAfter = if ($actionMode -ne 'block' -and $item.tapAfter -eq $true) { 'true' } else { 'false' }
+  $blockPhysical = if ($actionMode -eq 'block' -or $item.blockPhysical -ne $false) { 'true' } else { 'false' }
+
+  $runner = Find-AutoHotkeyV2
+  if (-not $runner) { $runner = Install-AutoHotkeyV2 }
+  $scriptPath = Join-Path $GameAutomationRoot 'game-control.ahk'
+  if (-not (Test-Path -LiteralPath $scriptPath -PathType Leaf)) { throw 'automation\game-control.ahk fehlt.' }
+  Remove-FinishedGameControlRuns
+  if (-not (Test-Path -LiteralPath $GameControlRuntimeRoot)) { New-Item -ItemType Directory -Path $GameControlRuntimeRoot -Force | Out-Null }
+  $cancelPath = Join-Path $GameControlRuntimeRoot ($id + '-' + [guid]::NewGuid().ToString('N') + '.run')
+  Set-Content -LiteralPath $cancelPath -Value 'run' -Encoding UTF8 -NoNewline
+  $argumentLine = '"' + $scriptPath + '" "' + ($keys -join '/') + '" "' + $holdMs + '" "' + $tapAfter + '" "' + $blockPhysical + '" "' + $actionMode + '" "' + $repeatIntervalMs + '" "' + $cancelPath + '"'
+  try {
+    $process = Start-Process -FilePath $runner -ArgumentList $argumentLine -WorkingDirectory $GameAutomationRoot -WindowStyle Hidden -PassThru
+    $script:GameControlRuns += [pscustomobject]@{ Id = $id; Process = $process; CancelPath = $cancelPath }
+  } catch {
+    try { Remove-Item -LiteralPath $cancelPath -Force -ErrorAction SilentlyContinue } catch {}
+    throw
+  }
+  return ('{"ok":true,"id":"' + (Escape-JsonString $id) + '","processId":' + $process.Id + ',"keys":"' + (Escape-JsonString ($keys -join '/')) + '","holdMs":' + $holdMs + ',"actionMode":"' + $actionMode + '","repeatIntervalMs":' + $repeatIntervalMs + '}')
+}
+
+function Resolve-GameControlStatusImage {
+  param([object]$Item)
+  if ($null -eq $Item -or $Item.statusImageOn -ne $true) { return $null }
+
+  $linkId = ([string]$Item.statusImageId).Trim() -replace '[^A-Za-z0-9._-]', ''
+  $legacyPath = ([string]$Item.statusImagePath).Trim().Replace('\', '/').TrimStart('/')
+  if ($legacyPath.Length -gt 500 -or $legacyPath -match '(^|/)\.\.(/|$)' -or $legacyPath -match '[\x00-\x1F:*?"<>|]') { $legacyPath = '' }
+  $source = $null
+
+  try {
+    if (Test-Path -LiteralPath $ImageOverlaysPath) {
+      $stored = (Get-Content -LiteralPath $ImageOverlaysPath -Raw -ErrorAction Stop) | ConvertFrom-Json -ErrorAction Stop
+      $images = @()
+      if ($null -ne $stored) {
+        if ($null -ne $stored.images) { $images = @($stored.images) }
+        elseif ($stored -is [array]) { $images = @($stored) }
+      }
+      if ($linkId) {
+        foreach ($candidate in $images) {
+          if (([string]$candidate.id).Trim() -eq $linkId) { $source = $candidate; break }
+        }
+      }
+      if ($null -eq $source -and $legacyPath) {
+        foreach ($candidate in $images) {
+          $candidatePath = ([string]$candidate.path).Trim().Replace('\', '/').TrimStart('/')
+          if ($candidatePath -eq $legacyPath) { $source = $candidate; break }
+        }
+      }
+    }
+  } catch {}
+
+  # Falls eine alte Konfiguration noch nicht migriert wurde, bleiben deren
+  # gespeicherte Werte nutzbar. Neue Verknuepfungen lesen immer live aus Bilder.
+  if ($null -eq $source) { $source = $Item }
+  $path = ([string]$source.path).Trim().Replace('\', '/').TrimStart('/')
+  if (-not $path) { $path = $legacyPath }
+  if (-not $path -or $path.Length -gt 500 -or $path -match '(^|/)\.\.(/|$)' -or $path -match '[\x00-\x1F:*?"<>|]') { return $null }
+
+  $name = ([string]$source.name).Trim()
+  if (-not $name) { $name = ([string]$Item.statusImageName).Trim() }
+  $resolvedId = ([string]$source.id).Trim()
+  if (-not $resolvedId) { $resolvedId = $linkId }
+  return [ordered]@{
+    enabled = $true
+    imageId = $resolvedId
+    path = $path
+    name = $name
+    x = [math]::Round((ConvertTo-SafeDouble -Value $(if ($null -ne $source.x) { $source.x } else { $Item.statusImageX }) -Fallback 35 -Min 0 -Max 100), 2)
+    y = [math]::Round((ConvertTo-SafeDouble -Value $(if ($null -ne $source.y) { $source.y } else { $Item.statusImageY }) -Fallback 35 -Min 0 -Max 100), 2)
+    width = [math]::Round((ConvertTo-SafeDouble -Value $(if ($null -ne $source.width) { $source.width } else { $Item.statusImageWidth }) -Fallback 30 -Min 1 -Max 100), 2)
+    height = [math]::Round((ConvertTo-SafeDouble -Value $(if ($null -ne $source.height) { $source.height } else { $Item.statusImageHeight }) -Fallback 30 -Min 1 -Max 100), 2)
+    opacity = [math]::Round((ConvertTo-SafeDouble -Value $(if ($null -ne $source.opacity) { $source.opacity } else { $Item.statusImageOpacity }) -Fallback 100 -Min 0 -Max 100), 0)
+  }
+}
+
+function New-GameControlOutput {
+  param([object]$Item, [string]$State, [bool]$Active, [string]$Trigger)
+  $id = ([string]$Item.id).Trim()
+  $name = ([string]$Item.name).Trim()
+  if (-not $name) { $name = 'Game-Steuerung' }
+  $durationMs = 0
+  if ($Active) {
+    if (([string]$Item.actionType).Trim().ToLowerInvariant() -eq 'kill') {
+      if (([string]$Item.killMode).Trim().ToLowerInvariant() -eq 'graceful-force') {
+        $durationMs = Clamp-Int -Value $Item.killTimeoutMs -Fallback 3000 -Min 500 -Max 30000
+      }
+    } else {
+      $durationMs = Clamp-Int -Value $Item.holdMs -Fallback 5000 -Min 50 -Max 600000
+    }
+  }
+  $output = [ordered]@{
+    module = 'gameControl'
+    state = $State
+    name = $name
+    id = $id
+    trigger = ([string]$Trigger).Trim()
+    active = $Active
+    durationMs = [long]$durationMs
+  }
+  if ($Active) {
+    $resolvedStatusImage = Resolve-GameControlStatusImage -Item $Item
+    if ($null -ne $resolvedStatusImage) { $output.statusImage = $resolvedStatusImage }
+  }
+  return $output
+}
+
+function Invoke-GameControlsByTrigger {
+  param([object]$Incoming)
+  $triggers = @()
+  if ($null -ne $Incoming -and $null -ne $Incoming.triggers) {
+    foreach ($raw in @($Incoming.triggers)) {
+      $trigger = ([string]$raw).Trim()
+      if ($trigger.Length -gt 120) { $trigger = $trigger.Substring(0, 120) }
+      if ($trigger -and $triggers -notcontains $trigger) { $triggers += $trigger }
+      if ($triggers.Count -ge 32) { break }
+    }
+  }
+
+  $dynamic = @()
+  if ($null -ne $Incoming -and $null -ne $Incoming.dynamic) {
+    foreach ($raw in @($Incoming.dynamic)) {
+      if ($null -eq $raw) { continue }
+      $trigger = ([string]$raw.trigger).Trim()
+      $input = ([string]$raw.input).Trim()
+      if ($trigger.Length -gt 120) { $trigger = $trigger.Substring(0, 120) }
+      if ($input.Length -gt 40) { $input = $input.Substring(0, 40) }
+      if ($trigger -and $input) { $dynamic += [pscustomobject]@{ trigger = $trigger; input = $input } }
+      if ($dynamic.Count -ge 32) { break }
+    }
+  }
+  if ($triggers.Count -eq 0 -and $dynamic.Count -eq 0) { return '{"ok":true,"count":0,"ids":[],"outputs":[]}' }
+
+  $config = (Read-GameControlsJson) | ConvertFrom-Json -ErrorAction Stop
+  $started = @()
+  $outputs = @()
+  $handledGroupTriggers = @()
+  if ($null -ne $config.groupTriggers) {
+    foreach ($property in $config.groupTriggers.PSObject.Properties) {
+      $groupName = ([string]$property.Name).Trim()
+      $groupTrigger = ([string]$property.Value).Trim()
+      if (-not $groupName -or -not $groupTrigger -or $triggers -notcontains $groupTrigger) { continue }
+      if ($handledGroupTriggers -notcontains $groupTrigger) { $handledGroupTriggers += $groupTrigger }
+      $candidates = @()
+      foreach ($candidate in @($config.items)) {
+        if ($null -eq $candidate -or $candidate.enabled -eq $false -or $candidate.dynamicInput -eq $true) { continue }
+        if (([string]$candidate.group).Trim() -ne $groupName) { continue }
+        if (([string]$candidate.actionType).Trim().ToLowerInvariant() -eq 'kill') {
+          $candidateProcess = Normalize-GameProcessName $candidate.processName
+          if ($candidateProcess -and @(Get-ExactGameProcesses $candidateProcess).Count -gt 0) { $candidates += $candidate }
+        } else {
+          $candidateKeys = @(ConvertTo-GameControlKeyArray $candidate.keys)
+          if ($candidateKeys.Count -gt 0) { $candidates += $candidate }
+        }
+      }
+      if ($candidates.Count -eq 0) { continue }
+      $picked = Get-Random -InputObject $candidates
+      $pickedId = ([string]$picked.id).Trim()
+      if (-not $pickedId) { continue }
+      # Der Gruppen-Trigger ist bewusst getrennt vom Einzel-Trigger. Darum darf
+      # das zufällig gewählte Element auch bei ausgeschaltetem Einzel-Trigger laufen.
+      Invoke-GameControl ([pscustomobject]@{ id = $pickedId; force = $true }) | Out-Null
+      $started += $pickedId
+      $outputs += (New-GameControlOutput -Item $picked -State 'started' -Active $true -Trigger $groupTrigger)
+    }
+  }
+  foreach ($item in @($config.items)) {
+    if ($null -eq $item -or $item.enabled -eq $false -or $item.triggerOn -ne $true -or $item.dynamicInput -eq $true) { continue }
+    $itemTrigger = ([string]$item.trigger).Trim()
+    if (-not $itemTrigger -or $triggers -notcontains $itemTrigger -or $handledGroupTriggers -contains $itemTrigger) { continue }
+    $id = ([string]$item.id).Trim()
+    if (-not $id) { continue }
+    Invoke-GameControl ([pscustomobject]@{ id = $id }) | Out-Null
+    $started += $id
+    $outputs += (New-GameControlOutput -Item $item -State 'started' -Active $true -Trigger $itemTrigger)
+  }
+
+  $stopped = 0
+  foreach ($signal in @($dynamic)) {
+    foreach ($item in @($config.items)) {
+      if ($null -eq $item -or $item.enabled -eq $false -or $item.triggerOn -ne $true -or $item.dynamicInput -ne $true) { continue }
+      if (([string]$item.trigger).Trim() -ne [string]$signal.trigger) { continue }
+      $id = ([string]$item.id).Trim()
+      if (-not $id) { continue }
+      $input = ([string]$signal.input).Trim().ToUpperInvariant()
+      if ($input -eq 'STOP') {
+        $stoppedNow = Stop-GameControlById -Id $id
+        $stopped += $stoppedNow
+        if ($stoppedNow -gt 0) { $outputs += (New-GameControlOutput -Item $item -State 'stopped' -Active $false -Trigger ([string]$signal.trigger)) }
+        continue
+      }
+      $key = Normalize-GameControlKey $input
+      $allowed = @(ConvertTo-GameControlKeyArray $item.keys)
+      # Die auf der Bildschirmtastatur markierten Tasten sind die komplette
+      # Erlaubt-Liste. Nicht markierte/ungueltige Eingaben werden ignoriert.
+      if (-not $key -or $allowed -notcontains $key) { continue }
+      Invoke-GameControl ([pscustomobject]@{ id = $id; keyOverride = $key }) | Out-Null
+      $started += $id
+      $outputs += (New-GameControlOutput -Item $item -State 'started' -Active $true -Trigger ([string]$signal.trigger))
+    }
+  }
+
+  return ([ordered]@{
+    ok = $true
+    count = $started.Count
+    stopped = $stopped
+    ids = @($started)
+    outputs = @($outputs)
+  } | ConvertTo-Json -Compress -Depth 5)
 }
 
 function Build-ExcludedAppsJson {
@@ -916,10 +1760,12 @@ function Build-CheatItemJson {
   $textOpacity = 100
   $font      = 'Segoe UI, sans-serif'
   $fontSize  = 18
-  # Position/Breite in PROZENT des Monitors (frei positionierbar per Ziehen).
+  # Position/Breite/Hoehe in PROZENT des Monitors (frei positionierbar per Ziehen).
   $x         = 66
   $y         = 6
   $width     = 24
+  # 0 = automatische Inhaltshoehe fuer vorhandene, noch nicht skalierte Notizen.
+  $height    = 0
   $updatedAt = (Get-NowMilliseconds)
   $trigger   = ''
   $triggerOn = $false
@@ -938,6 +1784,7 @@ function Build-CheatItemJson {
     if ($null -ne $o.x)           { try { $x = [double]$o.x } catch {} }
     if ($null -ne $o.y)           { try { $y = [double]$o.y } catch {} }
     if ($null -ne $o.width)       { try { $width = [double]$o.width } catch {} }
+    if ($null -ne $o.height)      { try { $height = [double]$o.height } catch {} }
     if ($null -ne $o.updatedAt)   { try { $updatedAt = [long][double]$o.updatedAt } catch {} }
     if ($null -ne $o.trigger)     { $trigger = [string]$o.trigger }
     if ($null -ne $o.triggerOn)   { $triggerOn = [bool]$o.triggerOn }
@@ -948,7 +1795,9 @@ function Build-CheatItemJson {
   if ($x -lt 0) { $x = 0 }; if ($x -gt 100) { $x = 100 }
   if ($y -lt 0) { $y = 0 }; if ($y -gt 100) { $y = 100 }
   if ($width -lt 5) { $width = 5 }; if ($width -gt 90) { $width = 90 }
-  $x = [math]::Round($x, 2); $y = [math]::Round($y, 2); $width = [math]::Round($width, 2)
+  if ($height -lt 0) { $height = 0 }; if ($height -gt 0 -and $height -lt 4) { $height = 4 }; if ($height -gt 95) { $height = 95 }
+  if ($height -gt 0 -and ($y + $height) -gt 100) { $y = 100 - $height }
+  $x = [math]::Round($x, 2); $y = [math]::Round($y, 2); $width = [math]::Round($width, 2); $height = [math]::Round($height, 2)
   if ([string]::IsNullOrWhiteSpace($id)) { $id = 'legacy' }
   $sb = New-Object System.Text.StringBuilder
   [void]$sb.Append('{"id":"' + (Escape-JsonString $id) + '"')
@@ -965,6 +1814,7 @@ function Build-CheatItemJson {
   [void]$sb.Append(',"x":' + $x)
   [void]$sb.Append(',"y":' + $y)
   [void]$sb.Append(',"width":' + $width)
+  [void]$sb.Append(',"height":' + $height)
   [void]$sb.Append(',"trigger":"' + (Escape-JsonString $trigger) + '"')
   [void]$sb.Append(',"triggerOn":' + $(if ($triggerOn) { 'true' } else { 'false' }))
   [void]$sb.Append(',"updatedAt":' + $updatedAt)
@@ -1576,6 +2426,15 @@ function Test-ControlToken {
   return $Headers.ContainsKey('x-kappi-token') -and $Headers['x-kappi-token'] -eq $ControlToken
 }
 
+function Test-GameControlRuntimeRequest {
+  param([hashtable]$Headers, [string]$RemoteIp)
+  $ip = ([string]$RemoteIp) -replace '^::ffff:', ''
+  if ($ip -ne '127.0.0.1' -and $ip -ne '::1') { return $false }
+  if (-not $Headers.ContainsKey('x-freakshow-runtime') -or $Headers['x-freakshow-runtime'] -ne 'overlay') { return $false }
+  if ($Headers.ContainsKey('origin') -and ([string]$Headers['origin']) -notmatch '^http://(127\.0\.0\.1|localhost):18081$') { return $false }
+  return $true
+}
+
 function Test-LocalOrigin {
   param([hashtable]$Headers)
   if (-not $Headers.ContainsKey('origin') -or [string]::IsNullOrWhiteSpace($Headers['origin'])) { return $true }
@@ -1584,8 +2443,8 @@ function Test-LocalOrigin {
 }
 
 # IP-Freigabe: welche Geraete auf die Bridge duerfen. Liste in allowed-ips.json (gecacht per
-# Aenderungszeit). LEERE Liste = alle im LAN erlaubt (wie bisher). Sobald IPs eingetragen sind,
-# duerfen NUR diese + Loopback (dieser PC ist NIE aussperrbar -> Notausgang am Host).
+# Aenderungszeit). LEERE Liste = nur dieser PC. Sobald IPs eingetragen sind,
+# duerfen NUR diese + Loopback/eigene Adressen (dieser PC ist NIE aussperrbar -> Notausgang am Host).
 $script:AllowedIpsCache = @()
 $script:AllowedIpsMt = -1
 function Read-AllowedIps {
@@ -1625,8 +2484,21 @@ function Test-IpAllowed {
   if ($ip -eq '127.0.0.1' -or $ip -eq '::1' -or $ip -eq '0.0.0.0') { return $true }  # Loopback immer erlaubt
   if (@(Get-LocalMachineIps) -contains $ip) { return $true }         # eigene LAN-Adressen immer erlaubt
   $list = Read-AllowedIps
-  if ($null -eq $list -or @($list).Count -eq 0) { return $true }     # leer = alle erlaubt
+  if ($null -eq $list -or @($list).Count -eq 0) { return $false }    # leer = nur dieser PC
   return (@($list) -contains $ip)
+}
+
+function Get-CorsResponseHeaders {
+  param([string]$Methods = 'GET, POST, OPTIONS')
+  $result = @()
+  $origin = [string]$script:ResponseCorsOrigin
+  if (-not [string]::IsNullOrWhiteSpace($origin)) {
+    $result += "Access-Control-Allow-Origin: $origin"
+    $result += 'Vary: Origin'
+    $result += "Access-Control-Allow-Methods: $Methods"
+    $result += 'Access-Control-Allow-Headers: Content-Type, X-Kappi-Token'
+  }
+  return $result
 }
 
 # Prueft per MSG_PEEK, ob der komplette HTTP-Header bereits im Socket liegt.
@@ -1659,13 +2531,12 @@ function Write-HttpResponse {
 
   if ($null -eq $Body) { $Body = '' }
   $bodyBytes = [System.Text.Encoding]::UTF8.GetBytes($Body)
+  $corsHeaders = @(Get-CorsResponseHeaders)
   $headers = @(
     "HTTP/1.1 $StatusCode $Reason",
     "Content-Type: $ContentType; charset=utf-8",
-    "Content-Length: $($bodyBytes.Length)",
-    'Access-Control-Allow-Origin: *',
-    'Access-Control-Allow-Methods: GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers: Content-Type, X-Kappi-Token',
+    "Content-Length: $($bodyBytes.Length)"
+  ) + $corsHeaders + @(
     'Permissions-Policy: local-network-access=*, local-network=*, loopback-network=*',
     'Cache-Control: no-store',
     'Connection: close',
@@ -1741,6 +2612,9 @@ function Get-ExternalPreviewDefinition {
     }
     'tawmae-spotify' {
       return @{ Url = 'https://tawmae.xyz/overlays/spotify-and-sb'; Base = 'https://tawmae.xyz/overlays/' }
+    }
+    'tawmae-giveaway' {
+      return @{ Url = 'https://tawmae.xyz/overlays/giveaway-overlay'; Base = 'https://tawmae.xyz/overlays/' }
     }
     'mustached-viewer-queue' {
       return @{ Url = 'https://mustachedmaniac.com/widgets/Viewer_Queue/'; Base = 'https://mustachedmaniac.com/widgets/Viewer_Queue/' }
@@ -1910,15 +2784,15 @@ function Write-BinaryFileResponse {
   $validators = if ($isMedia) { Get-MediaValidators $fileInfo } else { $null }
 
   if ($isMedia -and (Test-RequestNotModified -Headers $Headers -ETag $validators.ETag -LastModifiedUtc $fileInfo.LastWriteTimeUtc)) {
+    $corsHeaders = @(Get-CorsResponseHeaders -Methods 'GET, OPTIONS')
     $notModifiedHeaders = @(
       'HTTP/1.1 304 Not Modified',
       'Content-Length: 0',
       "ETag: $($validators.ETag)",
       "Last-Modified: $($validators.LastModified)",
       "Cache-Control: $cacheControl",
-      'Accept-Ranges: bytes',
-      'Access-Control-Allow-Origin: *',
-      'Access-Control-Allow-Methods: GET, OPTIONS',
+      'Accept-Ranges: bytes'
+    ) + $corsHeaders + @(
       'Permissions-Policy: local-network-access=*, local-network=*, loopback-network=*',
       'Connection: close',
       '',
@@ -1954,8 +2828,7 @@ function Write-BinaryFileResponse {
   if ($partial) { $responseHeaders.Add("Content-Range: bytes $start-$end/$($fileInfo.Length)") }
   $responseHeaders.Add('Accept-Ranges: bytes')
   if ($isMedia) { $responseHeaders.Add("ETag: $($validators.ETag)"); $responseHeaders.Add("Last-Modified: $($validators.LastModified)") }
-  $responseHeaders.Add('Access-Control-Allow-Origin: *')
-  $responseHeaders.Add('Access-Control-Allow-Methods: GET, OPTIONS')
+  foreach ($corsHeader in @(Get-CorsResponseHeaders -Methods 'GET, OPTIONS')) { $responseHeaders.Add($corsHeader) }
   $responseHeaders.Add('Permissions-Policy: local-network-access=*, local-network=*, loopback-network=*')
   $responseHeaders.Add("Cache-Control: $cacheControl")
   $responseHeaders.Add('Connection: close')
@@ -2030,7 +2903,12 @@ function Get-JsonStringField {
 }
 
 function Save-UploadedVideo {
-  param([string]$Body)
+  param(
+    [string]$Body,
+    [string]$ForcedFolder = '',
+    [string[]]$AllowedExtensions = @(),
+    [long]$MaxBytes = 0
+  )
   if ([string]::IsNullOrWhiteSpace($Body)) { return '{"ok":false,"error":"no data"}' }
   $b64 = Get-JsonStringField -Body $Body -Field 'dataBase64'
   if ([string]::IsNullOrWhiteSpace($b64)) { return '{"ok":false,"error":"no data"}' }
@@ -2040,7 +2918,11 @@ function Save-UploadedVideo {
   $rawName = Get-JsonStringField -Body $Body -Field 'filename'
   if ([string]::IsNullOrWhiteSpace($rawName)) { $rawName = 'video.webm' }
   $ext = ([System.IO.Path]::GetExtension($rawName)).ToLowerInvariant()
-  $allowed = @('.mp4', '.webm', '.mov', '.m4v', '.ogv', '.ogg', '.gif', '.png', '.jpg', '.jpeg', '.webp', '.bmp', '.apng')
+  $allowed = if ($AllowedExtensions.Count -gt 0) {
+    @($AllowedExtensions | ForEach-Object { ([string]$_).ToLowerInvariant() })
+  } else {
+    @('.mp4', '.webm', '.mov', '.m4v', '.ogv', '.ogg', '.gif', '.png', '.jpg', '.jpeg', '.webp', '.bmp', '.apng', '.html', '.htm')
+  }
   if ($allowed -notcontains $ext) { return '{"ok":false,"error":"unsupported type"}' }
 
   $base = [System.IO.Path]::GetFileNameWithoutExtension($rawName)
@@ -2049,7 +2931,11 @@ function Save-UploadedVideo {
 
   # Optionaler Ziel-Ordner (z. B. 'backgrounds' oder 'images/<Gruppe>'); pro Segment
   # sicher bereinigt (max. 2 Ebenen), damit Bilder-Gruppen als Unterordner moeglich sind.
-  $folderRaw = Get-JsonStringField -Body $Body -Field 'folder'
+  $folderRaw = if ([string]::IsNullOrWhiteSpace($ForcedFolder)) {
+    Get-JsonStringField -Body $Body -Field 'folder'
+  } else {
+    $ForcedFolder
+  }
   if ([string]::IsNullOrWhiteSpace($folderRaw)) { $folderRaw = 'uploads' }
   $segs = @(($folderRaw -replace '\\', '/').Split('/') | ForEach-Object { Get-SafeGroupFolderName $_ } | Where-Object { $_ })
   if ($segs.Count -eq 0) { $segs = @('uploads') }
@@ -2071,6 +2957,9 @@ function Save-UploadedVideo {
     }
 
     $bytes = [System.Convert]::FromBase64String($b64)
+    if ($MaxBytes -gt 0 -and $bytes.LongLength -gt $MaxBytes) {
+      return '{"ok":false,"error":"file too large"}'
+    }
     [System.IO.File]::WriteAllBytes($target, $bytes)
   } catch {
     return '{"ok":false,"error":"write failed"}'
@@ -2257,6 +3146,14 @@ $emoteRainTest = [ordered]@{
   updatedAt = 0
 }
 
+# Kurzlebiger Live-Zustand der externen Overlay-Links. Das echte Overlay meldet
+# hierhin zurueck, was nach Streamer.bot-Triggern gerade wirklich sichtbar ist.
+$externalLinksRuntime = [ordered]@{
+  ok = $true
+  items = @()
+  updatedAt = 0
+}
+
 # --- Alte Instanzen wegraeumen, damit beim Start immer die neueste Version laeuft ---
 if (-not $EmbeddedHost) { try {
   # Alte Bridge auf Port 18081 beenden (nicht sich selbst) -> Port wird frei.
@@ -2334,6 +3231,10 @@ try {
   $listener6 = $null
 }
 
+# Die portable AutoHotkey-v2-Laufzeit im Hintergrund bereitstellen. Die Bridge ist
+# zu diesem Zeitpunkt bereits erreichbar; der erste Start wird dadurch nicht blockiert.
+Start-AutoHotkeyV2Bootstrap
+
 # Waechter starten: beendet die Bridge, sobald die Overlay-EXE geschlossen wird.
 # So laeuft der Waechter automatisch mit - egal ob per Start-Overlay.exe oder .bat.
 if (-not $EmbeddedHost) { try {
@@ -2384,7 +3285,9 @@ while ($true) {
     } elseif ($null -ne $listener6 -and $listener6.Pending()) {
       $client = $listener6.AcceptTcpClient()
     } else {
-      Start-Sleep -Milliseconds 8
+      # 50 ms reichen fuer eine reaktionsschnelle lokale Bedienung und verhindern,
+      # dass die PowerShell-Bridge im Leerlauf permanent CPU-Zeit verbraucht.
+      Start-Sleep -Milliseconds 50
       # Lebenszeichen-Check (gedrosselt ~alle 2s): kommt vom Overlay ~15s nichts mehr,
       # ist es geschlossen -> aufraeumen und Bridge beenden.
       $hbNow = Get-NowMilliseconds
@@ -2459,13 +3362,39 @@ while ($true) {
       }
     }
 
+    # CORS nur fuer die eigene lokale/LAN-Steuerseite freigeben. Fremde Webseiten
+    # koennen dadurch Antworten und das eingebettete Kontroll-Token nicht auslesen.
+    $script:ResponseCorsOrigin = ''
+    if ($headers.ContainsKey('origin') -and (Test-LocalOrigin -Headers $headers)) {
+      $script:ResponseCorsOrigin = [string]$headers['origin']
+    }
+
     $contentLength = 0
     if ($headers.ContainsKey('content-length')) {
       [void][int]::TryParse($headers['content-length'], [ref]$contentLength)
     }
 
     if ($method -eq 'OPTIONS') {
+      if ($headers.ContainsKey('origin') -and -not (Test-LocalOrigin -Headers $headers)) {
+        Write-HttpResponse -Stream $stream -StatusCode 403 -Reason 'Forbidden' -Body '{"ok":false,"error":"forbidden origin"}'
+        continue
+      }
       Write-HttpResponse -Stream $stream -StatusCode 204 -Reason 'No Content' -Body '' -ContentType 'text/plain'
+      continue
+    }
+
+    # Alle Konfigurations- und Bedien-Schreibzugriffe brauchen das pro Installation
+    # erzeugte Token. Nur klar abgegrenzte Meldungen aus der Overlay-Laufzeit bleiben
+    # tokenlos und besitzen teilweise zusaetzliche Laufzeitpruefungen.
+    $runtimePostPaths = @(
+      '/heartbeat', '/overlay/heartbeat',
+      '/game-control/runtime-trigger',
+      '/overlay-instance', '/overlay/overlay-instance',
+      '/external-links/runtime', '/overlay/external-links/runtime',
+      '/position-preview-ack'
+    )
+    if ($method -eq 'POST' -and -not ($runtimePostPaths -contains $path) -and -not (Test-ControlToken -Headers $headers)) {
+      Write-HttpResponse -Stream $stream -StatusCode 403 -Reason 'Forbidden' -Body '{"ok":false,"error":"forbidden"}'
       continue
     }
 
@@ -2589,6 +3518,11 @@ while ($true) {
       continue
     }
 
+    if ($method -eq 'GET' -and ($path -eq '/external-links/runtime' -or $path -eq '/overlay/external-links/runtime')) {
+      Write-HttpResponse -Stream $stream -StatusCode 200 -Reason 'OK' -Body ($externalLinksRuntime | ConvertTo-Json -Depth 5 -Compress)
+      continue
+    }
+
     if ($method -eq 'GET' -and ($path -eq '/video-overlays' -or $path -eq '/overlay/video-overlays')) {
       Write-HttpResponse -Stream $stream -StatusCode 200 -Reason 'OK' -Body (Get-VideoOverlaysJson)
       continue
@@ -2602,6 +3536,17 @@ while ($true) {
       } catch {
         Write-HttpResponse -Stream $stream -StatusCode 400 -Reason 'Bad Request' -Body '{"ok":false,"error":"invalid json"}'
       }
+      continue
+    }
+
+    if ($method -eq 'POST' -and ($path -eq '/video-bubble-upload' -or $path -eq '/overlay/video-bubble-upload')) {
+      $body = Read-RequestBody -Reader $reader -Length $contentLength
+      $result = Save-UploadedVideo `
+        -Body $body `
+        -ForcedFolder 'video-bubbles' `
+        -AllowedExtensions @('.html', '.htm', '.webm', '.txt') `
+        -MaxBytes (15L * 1024L * 1024L)
+      Write-HttpResponse -Stream $stream -StatusCode 200 -Reason 'OK' -Body $result
       continue
     }
 
@@ -2820,10 +3765,101 @@ while ($true) {
       continue
     }
 
+    if ($method -eq 'GET' -and ($path -eq '/ui-private-state' -or $path -eq '/overlay/ui-private-state')) {
+      if (-not (Test-ControlToken -Headers $headers)) {
+        Write-HttpResponse -Stream $stream -StatusCode 403 -Reason 'Forbidden' -Body '{"ok":false,"error":"forbidden"}'
+        continue
+      }
+      Write-HttpResponse -Stream $stream -StatusCode 200 -Reason 'OK' -Body (Read-PrivateUiStateJson)
+      continue
+    }
+
     if ($method -eq 'POST' -and ($path -eq '/ui-state' -or $path -eq '/overlay/ui-state')) {
       $body = Read-RequestBody -Reader $reader -Length $contentLength
       # Delta-Merge {"set":{...},"del":[...]} statt Ersetzen -> mehrere Tabs ueberschreiben sich nicht.
       Write-HttpResponse -Stream $stream -StatusCode 200 -Reason 'OK' -Body (Merge-UiStateJson $body)
+      continue
+    }
+
+    if ($method -eq 'GET' -and ($path -eq '/game-controls' -or $path -eq '/overlay/game-controls')) {
+      Write-HttpResponse -Stream $stream -StatusCode 200 -Reason 'OK' -Body (Read-GameControlsJson)
+      continue
+    }
+
+    if ($method -eq 'POST' -and ($path -eq '/game-controls' -or $path -eq '/overlay/game-controls')) {
+      if (-not (Test-ControlToken -Headers $headers)) {
+        Write-HttpResponse -Stream $stream -StatusCode 403 -Reason 'Forbidden' -Body '{"ok":false,"error":"forbidden"}'
+        continue
+      }
+      $body = Read-RequestBody -Reader $reader -Length $contentLength
+      try {
+        $incoming = if ([string]::IsNullOrWhiteSpace($body)) { $null } else { $body | ConvertFrom-Json -ErrorAction Stop }
+        Write-HttpResponse -Stream $stream -StatusCode 200 -Reason 'OK' -Body (Write-GameControlsJson $incoming)
+      } catch {
+        $message = ([string]$_.Exception.Message).Replace('\', '\\').Replace('"', '\"').Replace("`r", ' ').Replace("`n", ' ')
+        Write-HttpResponse -Stream $stream -StatusCode 400 -Reason 'Bad Request' -Body ('{"ok":false,"error":"' + $message + '"}')
+      }
+      continue
+    }
+
+    if ($method -eq 'GET' -and ($path -eq '/game-control/processes' -or $path -eq '/overlay/game-control/processes')) {
+      if (-not (Test-ControlToken -Headers $headers)) {
+        Write-HttpResponse -Stream $stream -StatusCode 403 -Reason 'Forbidden' -Body '{"ok":false,"error":"forbidden"}'
+        continue
+      }
+      Write-HttpResponse -Stream $stream -StatusCode 200 -Reason 'OK' -Body (Get-GameControlProcessesJson)
+      continue
+    }
+
+    # Das echte Overlay empfaengt General.Custom von Streamer.bot und reicht nur
+    # gespeicherte Trigger lokal an die AHK-Engine weiter. Der Endpunkt ist bewusst
+    # ausschliesslich fuer die Loopback-WebView2-Instanz zugaenglich; externe
+    # Browser/PCs koennen dadurch keine Tastendruecke starten.
+    if ($method -eq 'POST' -and $path -eq '/game-control/runtime-trigger') {
+      if (-not (Test-GameControlRuntimeRequest -Headers $headers -RemoteIp $remoteIp)) {
+        Write-HttpResponse -Stream $stream -StatusCode 403 -Reason 'Forbidden' -Body '{"ok":false,"error":"runtime only"}'
+        continue
+      }
+      $body = Read-RequestBody -Reader $reader -Length $contentLength
+      try {
+        $incoming = if ([string]::IsNullOrWhiteSpace($body)) { $null } else { $body | ConvertFrom-Json -ErrorAction Stop }
+        Write-HttpResponse -Stream $stream -StatusCode 200 -Reason 'OK' -Body (Invoke-GameControlsByTrigger $incoming)
+      } catch {
+        $message = ([string]$_.Exception.Message).Replace('\', '\\').Replace('"', '\"').Replace("`r", ' ').Replace("`n", ' ')
+        Write-HttpResponse -Stream $stream -StatusCode 400 -Reason 'Bad Request' -Body ('{"ok":false,"error":"' + $message + '"}')
+      }
+      continue
+    }
+
+    if ($method -eq 'POST' -and ($path -eq '/game-control/run' -or $path -eq '/overlay/game-control/run')) {
+      if (-not (Test-ControlToken -Headers $headers)) {
+        Write-HttpResponse -Stream $stream -StatusCode 403 -Reason 'Forbidden' -Body '{"ok":false,"error":"forbidden"}'
+        continue
+      }
+      $body = Read-RequestBody -Reader $reader -Length $contentLength
+      try {
+        $incoming = if ([string]::IsNullOrWhiteSpace($body)) { $null } else { $body | ConvertFrom-Json -ErrorAction Stop }
+        Write-HttpResponse -Stream $stream -StatusCode 200 -Reason 'OK' -Body (Invoke-GameControl $incoming)
+      } catch {
+        $message = ([string]$_.Exception.Message).Replace('\', '\\').Replace('"', '\"').Replace("`r", ' ').Replace("`n", ' ')
+        Write-HttpResponse -Stream $stream -StatusCode 400 -Reason 'Bad Request' -Body ('{"ok":false,"error":"' + $message + '"}')
+      }
+      continue
+    }
+
+    if ($method -eq 'POST' -and ($path -eq '/game-control/stop' -or $path -eq '/overlay/game-control/stop')) {
+      if (-not (Test-ControlToken -Headers $headers)) {
+        Write-HttpResponse -Stream $stream -StatusCode 403 -Reason 'Forbidden' -Body '{"ok":false,"error":"forbidden"}'
+        continue
+      }
+      $body = Read-RequestBody -Reader $reader -Length $contentLength
+      try {
+        $incoming = if ([string]::IsNullOrWhiteSpace($body)) { $null } else { $body | ConvertFrom-Json -ErrorAction Stop }
+        Write-HttpResponse -Stream $stream -StatusCode 200 -Reason 'OK' -Body (Stop-GameControl $incoming)
+      } catch {
+        $message = ([string]$_.Exception.Message).Replace('\', '\\').Replace('"', '\"').Replace("`r", ' ').Replace("`n", ' ')
+        Write-HttpResponse -Stream $stream -StatusCode 400 -Reason 'Bad Request' -Body ('{"ok":false,"error":"' + $message + '"}')
+      }
       continue
     }
 
@@ -3013,6 +4049,32 @@ while ($true) {
       try {
         $incoming = if ([string]::IsNullOrWhiteSpace($body)) { $null } else { $body | ConvertFrom-Json -ErrorAction Stop }
         Write-HttpResponse -Stream $stream -StatusCode 200 -Reason 'OK' -Body (Write-ExternalLinksJson $incoming)
+      } catch {
+        Write-HttpResponse -Stream $stream -StatusCode 400 -Reason 'Bad Request' -Body '{"ok":false,"error":"invalid json"}'
+      }
+      continue
+    }
+
+    if ($method -eq 'POST' -and ($path -eq '/external-links/runtime' -or $path -eq '/overlay/external-links/runtime')) {
+      $body = Read-RequestBody -Reader $reader -Length $contentLength
+      try {
+        $incoming = if ([string]::IsNullOrWhiteSpace($body)) { $null } else { $body | ConvertFrom-Json -ErrorAction Stop }
+        $runtimeItems = @()
+        foreach ($runtimeItem in @($incoming.items)) {
+          $runtimeId = [string]$runtimeItem.id
+          if ([string]::IsNullOrWhiteSpace($runtimeId)) { continue }
+          $runtimeItems += [ordered]@{
+            id = $runtimeId
+            visible = [bool]$runtimeItem.visible
+            triggered = [bool]$runtimeItem.triggered
+          }
+        }
+        $externalLinksRuntime = [ordered]@{
+          ok = $true
+          items = $runtimeItems
+          updatedAt = Get-NowMilliseconds
+        }
+        Write-HttpResponse -Stream $stream -StatusCode 200 -Reason 'OK' -Body ($externalLinksRuntime | ConvertTo-Json -Depth 5 -Compress)
       } catch {
         Write-HttpResponse -Stream $stream -StatusCode 400 -Reason 'Bad Request' -Body '{"ok":false,"error":"invalid json"}'
       }

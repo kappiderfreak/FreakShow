@@ -10,16 +10,41 @@
   var RELOAD_MS = 5000;
   var POSITION_PREVIEW_URL = location.origin + '/position-preview';
   var POSITION_PREVIEW_ACK_URL = location.origin + '/position-preview-ack';
-  var POSITION_PREVIEW_POLL_MS = 450;
-  var POSITION_PREVIEW_SCRIPT_VERSION = '20260628-ack1';
+  var UI_STATE_URL = location.origin + '/ui-state';
+  var POSITION_PREVIEW_POLL_MS = 1500;
+  var POSITION_THEME_POLL_MS = 2000;
+  var POSITION_PREVIEW_SCRIPT_VERSION = '20260721-theme2';
   var EXTERNAL_LINKS_URL = location.origin + '/external-links';
-  var EXTERNAL_LINKS_POLL_MS = 1000;
+  var EXTERNAL_LINKS_RUNTIME_URL = location.origin + '/external-links/runtime';
+  var EXTERNAL_LINKS_POLL_MS = 2500;
   var lastSignature = '';
   var lastPreviewSignature = '';
   var lastPreviewAckAt = 0;
   var bridgeLinks = null;
   var bridgeMonitorWidth = 0;
   var bridgeMonitorHeight = 0;
+  var lastConfiguredLinks = [];
+  var trigState = {};
+  var lastEnabledById = {};
+  var lastManualVersionById = {};
+  var triggerBound = false;
+  var runtimeReportInFlight = false;
+  var lastRuntimeReportSignature = '';
+  var lastRuntimeReportAt = 0;
+  var positionThemeAccent = '#4f7dd6';
+  var POSITION_THEME_ACCENTS = {
+    dunkel: '#4f7dd6',
+    hell: '#2f6fe0',
+    blau: '#38a1ff',
+    lila: '#a672ff',
+    gruen: '#34d17a',
+    sepia: '#b5762f',
+    kontrast: '#5fb0ff',
+    rose: '#ff6fae',
+    tuerkis: '#2ee0c8',
+    orange: '#ff9d3c',
+    nord: '#88c0d0'
+  };
 
   function log(message, obj) {
     if (window.console && console.log) {
@@ -52,6 +77,9 @@
       profile: link.profile || 'auto',
       persistent: link.persistent !== false,
       enabled: link.enabled !== false,
+      trigger: String(link.trigger || '').replace(/^\s+|\s+$/g, ''),
+      triggerOn: link.triggerOn === true,
+      manualVersion: Math.max(0, toInt(link.manualVersion, 0)),
       area: normalizeArea(link.area)
     };
   }
@@ -79,7 +107,9 @@
     for (var i = 0; i < links.length; i++) {
       var item = normalizeLink(links[i]);
       if (isHandledLocally(item)) continue;
-      if (item.url && item.enabled && item.persistent) out.push(item);
+      // Ausgeschaltete Links muessen fuer Streamer.bot im Speicher bleiben: Sie sind
+      // unsichtbar, bis ihr Custom-Event die Laufzeit-Umschaltung aktiviert.
+      if (item.url && item.persistent && (item.enabled || (item.triggerOn && item.trigger))) out.push(item);
     }
     return out;
   }
@@ -294,6 +324,154 @@
     return out;
   }
 
+  function safeThemeColor(value, fallback) {
+    value = String(value || '').trim();
+    return /^#[0-9a-f]{6}$/i.test(value) ? value : fallback;
+  }
+
+  function themeRgba(alpha) {
+    var color = safeThemeColor(positionThemeAccent, '#4f7dd6');
+    var r = parseInt(color.slice(1, 3), 16);
+    var g = parseInt(color.slice(3, 5), 16);
+    var b = parseInt(color.slice(5, 7), 16);
+    return 'rgba(' + r + ', ' + g + ', ' + b + ', ' + alpha + ')';
+  }
+
+  function pollPositionTheme() {
+    if (typeof XMLHttpRequest === 'undefined') return;
+    try {
+      var xhr = new XMLHttpRequest();
+      xhr.open('GET', UI_STATE_URL + '?t=' + Date.now(), true);
+      xhr.timeout = 900;
+      xhr.onload = function () {
+        if (xhr.status < 200 || xhr.status >= 300) return;
+        try {
+          var state = JSON.parse(xhr.responseText || '{}');
+          var theme = String(state['kappi.ui.theme'] || 'dunkel');
+          var next = POSITION_THEME_ACCENTS[theme] || safeThemeColor(state['kappi.ui.accent'], '#4f7dd6');
+          positionThemeAccent = safeThemeColor(next, '#4f7dd6');
+        } catch (err) {}
+      };
+      xhr.send();
+    } catch (err) {}
+  }
+
+  function visibleLinks(configured) {
+    var visible = [];
+    var seen = {};
+    for (var i = 0; i < configured.length; i++) {
+      var item = configured[i];
+      var id = String(item.id || item.url || '');
+      if (!id) continue;
+      seen[id] = true;
+      var enabled = item.enabled !== false;
+      var manualVersion = Math.max(0, toInt(item.manualVersion, 0));
+      if (Object.prototype.hasOwnProperty.call(lastEnabledById, id) && lastEnabledById[id] !== enabled) {
+        // Manueller Klick im Bedienfeld gewinnt immer und verwirft einen alten
+        // Laufzeit-Triggerzustand, wie bei den Bild-Overlays.
+        delete trigState[id];
+      }
+      if (Object.prototype.hasOwnProperty.call(lastManualVersionById, id) && lastManualVersionById[id] !== manualVersion) {
+        delete trigState[id];
+      }
+      lastEnabledById[id] = enabled;
+      lastManualVersionById[id] = manualVersion;
+      if (!item.triggerOn || !item.trigger) delete trigState[id];
+      // Sobald ein Streamer.bot-Trigger benutzt wurde, ist trigState der echte
+      // Sichtbarkeitswert (kein reines "zusaetzlich an"). Dadurch kann der Trigger
+      // auch ein links bereits eingeschaltetes Overlay wie Chat ausblenden.
+      var shown = Object.prototype.hasOwnProperty.call(trigState, id) ? trigState[id] === true : enabled;
+      if (shown) visible.push(item);
+    }
+    for (var known in lastEnabledById) {
+      if (Object.prototype.hasOwnProperty.call(lastEnabledById, known) && !seen[known]) {
+        delete lastEnabledById[known];
+        delete lastManualVersionById[known];
+        delete trigState[known];
+      }
+    }
+    return visible;
+  }
+
+  function customEventData(payload) {
+    var data = payload && payload.data ? payload.data : {};
+    // Die lokale Client-Bibliothek liefert CPH.WebsocketBroadcastJson teilweise
+    // als komplette General.Custom-Huelle in payload.data. Beide Formen akzeptieren.
+    if (data && data.event && data.event.source === 'General' && data.event.type === 'Custom' &&
+        data.data && typeof data.data === 'object') {
+      data = data.data;
+    }
+    return data || {};
+  }
+
+  function onCustom(payload) {
+    var data = customEventData(payload);
+    var configured = lastConfiguredLinks.length ? lastConfiguredLinks : getLinks();
+    var changed = false;
+    for (var i = 0; i < configured.length; i++) {
+      var item = configured[i];
+      if (!item || !item.triggerOn || !item.trigger) continue;
+      if (data[item.trigger] === true) {
+        var id = String(item.id || item.url || '');
+        if (!id) continue;
+        var currentlyShown = Object.prototype.hasOwnProperty.call(trigState, id)
+          ? trigState[id] === true
+          : item.enabled !== false;
+        trigState[id] = !currentlyShown;
+        changed = true;
+        log('Streamer.bot-Trigger „' + item.trigger + '“: Overlay ' + (trigState[id] ? 'eingeblendet.' : 'ausgeblendet.'), item);
+      }
+    }
+    if (changed) render(true);
+  }
+
+  function bindTrigger() {
+    if (triggerBound) return true;
+    if (window.client && typeof window.client.on === 'function') {
+      window.client.on('General.Custom', onCustom);
+      triggerBound = true;
+      return true;
+    }
+    return false;
+  }
+
+  function reportRuntimeState(configured, visible) {
+    if (typeof XMLHttpRequest === 'undefined' || runtimeReportInFlight) return;
+    var visibleById = {};
+    var items = [];
+    var i;
+    for (i = 0; i < visible.length; i++) {
+      visibleById[String(visible[i].id || visible[i].url || '')] = true;
+    }
+    for (i = 0; i < configured.length; i++) {
+      var id = String(configured[i].id || configured[i].url || '');
+      if (!id) continue;
+      items.push({
+        id: id,
+        visible: visibleById[id] === true,
+        triggered: Object.prototype.hasOwnProperty.call(trigState, id)
+      });
+    }
+    var signature = JSON.stringify(items);
+    var now = Date.now();
+    // Auch ohne Aenderung regelmaessig als Heartbeat melden, damit die
+    // Einstellungsseite keinen veralteten Zustand anzeigt.
+    if (signature === lastRuntimeReportSignature && (now - lastRuntimeReportAt) < 900) return;
+    lastRuntimeReportSignature = signature;
+    lastRuntimeReportAt = now;
+    try {
+      runtimeReportInFlight = true;
+      var xhr = new XMLHttpRequest();
+      xhr.open('POST', EXTERNAL_LINKS_RUNTIME_URL, true);
+      xhr.timeout = 800;
+      xhr.setRequestHeader('Content-Type', 'application/json');
+      xhr.onloadend = function () { runtimeReportInFlight = false; };
+      xhr.send(JSON.stringify({ items: items }));
+    } catch (err) {
+      runtimeReportInFlight = false;
+    }
+  }
+
   function pollExternalLinks() {
     if (typeof XMLHttpRequest === 'undefined') return;
     try {
@@ -410,9 +588,9 @@
     frame.style.top = Math.round(area.y * scaleY) + 'px';
     frame.style.width = Math.round(area.width * scaleX) + 'px';
     frame.style.height = Math.round(area.height * scaleY) + 'px';
-    frame.style.border = '4px solid rgba(48, 150, 255, .98)';
-    frame.style.background = 'rgba(48, 150, 255, .16)';
-    frame.style.boxShadow = '0 0 0 2px rgba(0, 0, 0, .48), 0 0 24px rgba(48, 150, 255, .85), inset 0 0 22px rgba(48, 150, 255, .28)';
+    frame.style.border = '4px solid ' + themeRgba(.98);
+    frame.style.background = themeRgba(.16);
+    frame.style.boxShadow = '0 0 0 2px rgba(0, 0, 0, .48), 0 0 24px ' + themeRgba(.85) + ', inset 0 0 22px ' + themeRgba(.28);
     frame.style.boxSizing = 'border-box';
 
     var label = document.createElement('div');
@@ -424,6 +602,8 @@
     label.style.padding = '6px 9px';
     label.style.borderRadius = '5px';
     label.style.background = 'rgba(4, 10, 18, .82)';
+    label.style.border = '1px solid ' + themeRgba(.62);
+    label.style.boxShadow = '0 0 10px ' + themeRgba(.24);
     label.style.color = '#e7f1ff';
     label.style.font = '700 13px Consolas, monospace';
     label.style.whiteSpace = 'nowrap';
@@ -438,7 +618,7 @@
     var layer = ensurePreviewLayer();
     var items = activePositionPreviewItems(payload);
     reportPositionPreview(items);
-    var signature = items.length ? JSON.stringify(items) : 'hidden';
+    var signature = items.length ? positionThemeAccent + '|' + JSON.stringify(items) : 'hidden';
     if (signature === lastPreviewSignature) return;
     lastPreviewSignature = signature;
 
@@ -527,7 +707,10 @@
   }
 
   function render(force) {
-    var links = getLinks();
+    var configured = getLinks();
+    lastConfiguredLinks = configured.slice();
+    var links = visibleLinks(configured);
+    reportRuntimeState(configured, links);
     var signature = signatureFor(links);
     if (!force && signature === lastSignature) return;
     lastSignature = signature;
@@ -596,7 +779,8 @@
     status: function () {
       return {
         active: true,
-        links: getLinks(),
+        links: visibleLinks(lastConfiguredLinks.length ? lastConfiguredLinks : getLinks()),
+        configuredLinks: (lastConfiguredLinks.length ? lastConfiguredLinks : getLinks()).slice(),
         layer: !!document.getElementById('kappi-external-overlay-layer')
       };
     },
@@ -614,12 +798,14 @@
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', function () {
       render(true);
+      pollPositionTheme();
       pollPositionPreview();
       pollExternalLinks();
       startNetProbe();
     });
   } else {
     render(true);
+    pollPositionTheme();
     pollPositionPreview();
     pollExternalLinks();
     startNetProbe();
@@ -631,5 +817,12 @@
   window.addEventListener('resize', function () { render(false); });
   window.setInterval(function () { render(false); }, RELOAD_MS);
   window.setInterval(pollPositionPreview, POSITION_PREVIEW_POLL_MS);
+  window.setInterval(pollPositionTheme, POSITION_THEME_POLL_MS);
   window.setInterval(pollExternalLinks, EXTERNAL_LINKS_POLL_MS);
+  if (!bindTrigger()) {
+    var triggerBindTries = 0;
+    var triggerBindTimer = window.setInterval(function () {
+      if (bindTrigger() || ++triggerBindTries > 60) window.clearInterval(triggerBindTimer);
+    }, 1000);
+  }
 })();

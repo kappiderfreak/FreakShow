@@ -13,7 +13,7 @@
   window.__KAPPI_CHEATSHEET_ACTIVE__ = true;
 
   var URL_ = location.origin + '/cheatsheet';
-  var POLL_MS = 400;   // schnell nachziehen (wie overlay-images.js) - Aenderungen erscheinen zuegig
+  var POLL_MS = 1500;  // zeitnah, ohne die lokale Bridge mehrfach pro Sekunde zu belasten
   var LAYER_ID = 'kappi-cheatsheet-layer';
   var lastKey = '';
   var lastItems = [];
@@ -60,6 +60,46 @@
       // Im echten Overlay nie den technischen Platzhalter zeigen. Beim Start bleibt
       // die Stelle kurz leer und wird direkt nach dem Variablenabruf neu gerendert.
       return Object.prototype.hasOwnProperty.call(bucket, name) ? variableHtml(bucket[name]) : '';
+    });
+  }
+
+  // --- Ereignis-Variablen (%user%, %message%, %amount%, beliebige Feldnamen) ---
+  // Beim Ausloesen wird die Streamer.bot-Payload pro Notiz eingefangen und beim
+  // Rendern eingesetzt - gleiche Logik wie bei den Video-Bubbles. Vor dem ersten
+  // Trigger bleibt die Stelle leer (nie der technische Platzhalter im Overlay).
+  var noteEventData = {}; // pro Notiz-ID: abgeflachte Payload des letzten Triggers
+  function flattenEventData(source) {
+    var out = {};
+    function walk(value, prefix, depth) {
+      if (value == null || depth > 6 || typeof value !== 'object') return;
+      for (var key in value) {
+        if (!Object.prototype.hasOwnProperty.call(value, key)) continue;
+        var path = prefix ? prefix + '.' + key : key;
+        var v = value[key];
+        if (v != null && typeof v === 'object') walk(v, path, depth + 1);
+        else {
+          out[path.toLowerCase()] = v;
+          var short = String(key).toLowerCase();
+          if (!Object.prototype.hasOwnProperty.call(out, short)) out[short] = v;
+        }
+      }
+    }
+    walk(source, '', 0);
+    // %user%-Komfort: die ueblichen Namensfelder priorisiert aufloesen.
+    if (out['user'] == null || typeof out['user'] === 'object') {
+      var pick = ['username', 'user.name', 'displayname', 'userdisplayname', 'user.login', 'login', 'name'];
+      for (var i = 0; i < pick.length; i++) {
+        if (Object.prototype.hasOwnProperty.call(out, pick[i]) && out[pick[i]] != null) { out['user'] = out[pick[i]]; break; }
+      }
+    }
+    return out;
+  }
+  function resolveEventVariables(raw, id) {
+    var vars = noteEventData[id];
+    return String(raw || '').replace(/%([A-Za-z0-9_.]+)%/g, function (token, name) {
+      if (!vars) return '';
+      var key = String(name || '').toLowerCase();
+      return Object.prototype.hasOwnProperty.call(vars, key) ? variableHtml(vars[key]) : '';
     });
   }
   function refreshVariables() {
@@ -134,10 +174,14 @@
     var show = cfg && (cfg.enabled || trigVis[cfg.id]) && String(cfg.text || '').trim().length > 0;
     if (!show) { el.style.display = 'none'; return; }
 
-    // Position/Breite in PROZENT des Monitors (frei positionierbar, pro Text).
+    // Position/Breite/Hoehe in PROZENT des Monitors (frei positionierbar, pro Text).
     var x = clampNum(cfg.x, 0, 100, 66);
     var y = clampNum(cfg.y, 0, 100, 6);
     var width = clampNum(cfg.width, 5, 90, 24);
+    var height = clampNum(cfg.height, 0, 95, 0);
+    if (height > 0 && height < 4) height = 4;
+    x = Math.min(x, 100 - width);
+    if (height > 0) y = Math.min(y, 100 - height);
     var fontSize = clampNum(cfg.fontSize, 8, 96, 20);
     var bgOpacity = clampNum(cfg.bgOpacity, 0, 100, 85) / 100;
     var textOpacity = clampNum(cfg.textOpacity, 0, 100, 100) / 100;
@@ -148,7 +192,9 @@
     var font = cfg.font || 'Segoe UI, sans-serif';
 
     el.style.cssText = 'position:absolute; box-sizing:border-box; pointer-events:none; display:block;'
-      + ' left:' + x + 'vw; top:' + y + 'vh; width:' + width + 'vw; max-width:calc(100vw - 6px); max-height:calc(100vh - 6px); overflow:hidden;'
+      + ' left:' + x + 'vw; top:' + y + 'vh; width:' + width + 'vw;'
+      + (height > 0 ? ' height:' + height + 'vh;' : '')
+      + ' max-width:calc(100vw - 6px); max-height:calc(100vh - 6px); overflow:hidden;'
       + ' padding:10px 12px; border-radius:10px; border:2px solid ' + (frameEnabled ? frameColor : 'transparent') + ';'
       + ' box-shadow:0 6px 24px rgba(0,0,0,.45);';
 
@@ -170,7 +216,7 @@
     // Quelle ist der eigene, lokale Speckzettel-Text -> innerHTML ist hier vertretbar.
     // Zusaetzlich wird Mini-Markdown interpretiert (kappi-markdown.js: Ueberschriften,
     // Tabellen, Listen, **fett** usw.) - identisch zur Vorschau im Bedienfeld.
-    var rawText = resolveVariables(cfg.text || '');
+    var rawText = resolveEventVariables(resolveVariables(cfg.text || ''), cfg.id);
     txt.innerHTML = (typeof window.kappiMarkdown === 'function') ? window.kappiMarkdown(rawText) : rawText;
     var imageEmojis = txt.querySelectorAll('img.kappi-note-image-emoji');
     for (var ie = 0; ie < imageEmojis.length; ie++) {
@@ -186,6 +232,7 @@
     txt.style.fontFamily = font;
     txt.style.fontSize = fontSize + 'px';
     txt.style.lineHeight = '1.35';
+    txt.style.minHeight = height > 0 ? '100%' : '';
     txt.style.fontWeight = '600';
     txt.style.textShadow = '0 1px 2px rgba(0,0,0,.55)';
   }
@@ -222,6 +269,7 @@
         delete trigVis[id];
         delete trigKeys[id];
         delete lastEnabledCs[id];
+        delete noteEventData[id];
       }
     }
   }
@@ -265,7 +313,12 @@
       var cfg = lastItems[i];
       if (!cfg || !cfg.triggerOn) continue;
       var trig = String(cfg.trigger || '').trim();
-      if (trig && data[trig] === true) { trigVis[cfg.id] = !trigVis[cfg.id]; changed = true; }
+      if (trig && data[trig] === true) {
+        trigVis[cfg.id] = !trigVis[cfg.id];
+        // Payload dieses Triggers fuer %user%/%message%/... im Notiz-Text merken.
+        noteEventData[cfg.id] = flattenEventData(data);
+        changed = true;
+      }
     }
     if (changed) renderAll(lastItems);
   }

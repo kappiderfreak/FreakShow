@@ -41,7 +41,9 @@ if (Test-Path -LiteralPath $output) {
 
 $stage = Join-Path $output 'FreakShow'
 $stageApp = Join-Path $stage 'app'
+$stageAutomation = Join-Path $stage 'automation'
 New-Item -ItemType Directory -Path $stageApp -Force | Out-Null
+New-Item -ItemType Directory -Path $stageAutomation -Force | Out-Null
 
 $rootFiles = @(
   'FreakShow.exe',
@@ -53,6 +55,7 @@ $rootFiles = @(
   'WebView2Loader.dll',
   'OverlayIcon.ico',
   'LICENSE',
+  'CHANGELOG.md',
   'README-FIRST.txt',
   'README.txt',
   'VERSION.txt'
@@ -64,6 +67,9 @@ foreach ($name in $rootFiles) {
 }
 Get-ChildItem -LiteralPath (Join-Path $root 'app') -File | ForEach-Object {
   Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $stageApp $_.Name) -Force
+}
+Get-ChildItem -LiteralPath (Join-Path $root 'automation') -File | Where-Object { $_.Extension -in @('.ahk', '.ps1') } | ForEach-Object {
+  Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $stageAutomation $_.Name) -Force
 }
 
 $zipName = "FreakShow-update-$Version.zip"
