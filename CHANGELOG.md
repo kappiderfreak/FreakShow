@@ -1,5 +1,15 @@
 # FreakShow – Änderungen
 
+## 1.2.1
+
+### Neu und korrigiert
+
+- Chat-Importcode dauerhaft unter „Verbindungen“ verfügbar
+- mittiger Import-Knopf im leeren Chat, solange Twitch und Streamer.bot getrennt sind
+- Importcode direkt in der EXE eingebettet und ohne bestehende Verbindung kopierbar
+- Chat-Import-Knopf erscheint nach einer Streamer.bot-Trennung sofort ohne Neuladen
+- neuer Video-Katalog startet ohne voreiligen Datei-Importhinweis
+
 ## 1.2.0
 
 Diese Version ist ein größerer Funktionssprung. Sie bündelt die neuen Video-, Bild-,

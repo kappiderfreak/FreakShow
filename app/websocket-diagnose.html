@@ -5505,9 +5505,17 @@
       text-align: left;
     }
 
-    #chat-log {
+    .chat-log-shell {
       flex: 1 1 auto;
       min-height: 60px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    #chat-log {
+      position: absolute;
+      inset: 0;
+      min-height: 0;
       overflow: auto;
       display: grid;
       align-content: start;
@@ -5517,6 +5525,78 @@
       border: 1px solid rgba(255,255,255,.08);
       border-radius: 6px;
       padding: 6px 8px;
+    }
+
+    .chat-import-empty {
+      position: absolute;
+      inset: 0;
+      z-index: 2;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 18px;
+      pointer-events: none;
+    }
+
+    .chat-import-empty[hidden] {
+      display: none !important;
+    }
+
+    .chat-import-copy {
+      pointer-events: auto;
+      display: grid;
+      justify-items: center;
+      gap: 8px;
+      width: min(220px, 88%);
+      padding: 18px 14px;
+      border: 1px dashed var(--accent, #83f28f);
+      border-radius: 12px;
+      background: rgba(0,0,0,.28);
+      color: var(--text, #d8e2f2);
+      text-align: center;
+    }
+
+    .chat-import-copy:hover,
+    .chat-import-copy:focus-visible {
+      border-style: solid;
+      background: rgba(131,242,143,.10);
+      box-shadow: 0 0 0 2px rgba(131,242,143,.14);
+    }
+
+    .chat-import-plus {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 48px;
+      height: 48px;
+      border: 2px solid currentColor;
+      border-radius: 50%;
+      color: var(--accent, #83f28f);
+      font-size: 34px;
+      font-weight: 300;
+      line-height: 1;
+    }
+
+    .chat-import-label {
+      font-weight: 700;
+      line-height: 1.25;
+    }
+
+    .chat-import-help {
+      color: var(--muted, #a8b3c7);
+      font-size: 10px;
+      line-height: 1.35;
+    }
+
+    .chat-import-settings-row {
+      align-items: center;
+      flex-wrap: wrap;
+      margin-top: 8px;
+    }
+
+    .chat-import-settings-row .settings-hint {
+      flex: 1 1 180px;
+      margin: 0;
     }
 
     .chat-line {
@@ -6452,7 +6532,7 @@
                       <span class="video-free-handle" data-corner="bl" aria-hidden="true"></span>
                       <span class="video-free-handle" data-corner="br" aria-hidden="true"></span>
                     </div>
-                    <div id="video-preview-empty" class="video-preview-empty">Ein Video links auswählen, neu hinzufügen oder eine Videodatei hierher ziehen</div>
+                    <div id="video-preview-empty" class="video-preview-empty" hidden></div>
                     <div id="video-drop-hint" class="video-drop-hint">Videodatei hier ablegen<br>– wird als neuer Eintrag oben hinzugefügt<br><span class="video-empty-formats">Sicher abspielbar: MP4, WebM, OGG / OGV</span></div>
                     <input id="video-file-input" type="file" accept="video/*,.mp4,.m4v,.webm,.mov,.qt,.ogv,.ogg,.mkv,.avi,.wmv,.flv,.mpg,.mpeg,.mpe,.m2v,.ts,.mts,.m2ts,.3gp,.3g2,.vob,.divx,.asf,.f4v,.mxf,.av1" hidden>
                   </div>
@@ -7261,6 +7341,13 @@
                   <button id="btn-connect" class="btn-success">Verbinden</button>
                 </div>
                 <p class="settings-hint" style="margin:8px 0 0" data-i18n="conn.passwordHint">Für YouTube/Kick und Twitch ohne direkte Anmeldung: In Streamer.bot die WebSocket-Authentifizierung aktivieren und hier dasselbe Passwort eintragen.</p>
+                <div class="settings-row chat-import-settings-row">
+                  <button type="button" id="chat-import-copy-connections" class="btn-primary" title="Streamer.bot-Importcode für den FreakShow-Chat kopieren">
+                    <span aria-hidden="true">+</span>
+                    <span id="chat-import-connections-label" data-i18n="chat.importCopy">Chat-Importcode kopieren</span>
+                  </button>
+                  <p id="chat-import-connections-status" class="settings-hint" data-i18n="chat.importHint">In Streamer.bot über „Import“ einfügen.</p>
+                </div>
               </div>
 
               <!-- Echter Streamer.bot-Status des OVERLAY-PCs. Der Host-PC meldet per Heartbeat, ob
@@ -7373,7 +7460,16 @@
       <div class="panel">
         <h2 data-i18n="chat.title">Chat</h2>
         <div class="panel-body">
-          <div id="chat-log"></div>
+          <div class="chat-log-shell">
+            <div id="chat-log"></div>
+            <div id="chat-import-empty" class="chat-import-empty" hidden>
+              <button type="button" id="chat-import-copy-empty" class="chat-import-copy" title="Streamer.bot-Importcode für den FreakShow-Chat kopieren">
+                <span class="chat-import-plus" aria-hidden="true">+</span>
+                <span id="chat-import-empty-label" class="chat-import-label" data-i18n="chat.importEmpty">Streamer.bot-Chat einrichten</span>
+                <span class="chat-import-help" data-i18n="chat.importEmptyHint">Importcode kopieren und in Streamer.bot importieren</span>
+              </button>
+            </div>
+          </div>
           <div class="chat-platform-row">
             <label for="chat-platform" data-i18n="chat.sendTo">Senden an</label>
             <select id="chat-platform" title="Twitch sendet bei direkter Anmeldung ohne Streamer.bot. YouTube und Kick benötigen Streamer.bot.">
@@ -10129,10 +10225,11 @@
           updateVideoFreePositionUi();
           updateVideoBubbleUi();
           hideVideoProgress();
-          empty.hidden = false;
-          empty.innerHTML = 'Ein Video links auswählen, neu hinzufügen<br>oder eine Videodatei hierher ziehen / klicken zum Auswählen'
-            + '<br><span class="video-empty-formats">Sicher abspielbar: MP4, WebM, OGG / OGV</span>';
-          empty.classList.add('clickable');
+          // Ein komplett neuer Katalog bleibt bewusst leer. Erst wenn der Nutzer
+          // mit "+" einen Eintrag anlegt, erscheint der Datei-Import im Monitor.
+          empty.hidden = true;
+          empty.innerHTML = '';
+          empty.classList.remove('clickable');
           byId('video-editor-title').textContent = 'Video auswählen';
           applyVideoStageAspect();
           setTimeout(applyVideoStageAspect, 80);
@@ -11563,7 +11660,7 @@
         var fileIn = byId('video-file-input');
         function needsVideoFile() {
           var item = selectedVideoOverlay();
-          return !item || (!String(item.videoPath || '').trim() && !item.sourceFile);
+          return !!item && !String(item.videoPath || '').trim() && !item.sourceFile;
         }
         stage.addEventListener('click', function () {
           if (fileIn && needsVideoFile()) fileIn.click();
@@ -15619,6 +15716,7 @@
 
         while (target.children.length > 80) target.removeChild(target.firstChild);
         target.scrollTop = target.scrollHeight;
+        if (typeof updateChatImportUi === 'function') updateChatImportUi();
       }
 
       // Kanalpunkt-Einlösung im Chat-Fenster anzeigen (kommt via Streamer.bot).
@@ -15681,6 +15779,7 @@
         target.appendChild(line);
         while (target.children.length > 80) target.removeChild(target.firstChild);
         target.scrollTop = target.scrollHeight;
+        if (typeof updateChatImportUi === 'function') updateChatImportUi();
       }
 
       // Baut die Chat-Nachricht auf: Emotes werden als Bild angezeigt (Hover =
@@ -15979,6 +16078,7 @@
           updateBotStatus(HOST + ':' + PORT);
           setStatus();
           log('WebSocket verbunden.', null, 'ok');
+          if (typeof updateChatSendReadiness === 'function') updateChatSendReadiness();
           // Alte Streamer.bot-Versionen ohne Hello-Paket bleiben weiter kompatibel.
           setTimeout(function () { if (!helloReceived) sendStartupRequests(); }, 1500);
         };
@@ -16064,6 +16164,7 @@
           streamerbotAuthenticated = false;
           updateBotStatus();
           setStatus();
+          if (typeof updateChatSendReadiness === 'function') updateChatSendReadiness();
           if (typeof resetChatActionsCheck === 'function') resetChatActionsCheck();
           log('WebSocket getrennt', { code: event.code, reason: event.reason, wasClean: event.wasClean }, 'warn');
         };
@@ -16074,6 +16175,7 @@
           streamerbotAuthenticated = false;
           updateBotStatus();
           setStatus();
+          if (typeof updateChatSendReadiness === 'function') updateChatSendReadiness();
           log('WebSocket-Fehler', event, 'bad');
         };
       }
@@ -16086,6 +16188,7 @@
           state.wsConnected = false;
           updateBotStatus();
           setStatus();
+          if (typeof updateChatSendReadiness === 'function') updateChatSendReadiness();
           return;
         }
         try {
@@ -16102,6 +16205,7 @@
         state.wsConnected = false;
         updateBotStatus();
         setStatus();
+        if (typeof updateChatSendReadiness === 'function') updateChatSendReadiness();
         if (!silent) log('WebSocket manuell getrennt.', null, 'muted');
       }
 
@@ -16146,7 +16250,7 @@
         de: {
           'tab.links': 'Overlays', 'tab.images': 'Bilder', 'tab.overlays': 'Videos', 'tab.emoterain': 'Roter Teppich', 'tab.gameControls': 'Game Steuern', 'tab.diagnostics': 'Diagnose', 'tab.settings': 'Einstellungen',
           'game.controlsTitle': 'Game-Steuerung', 'game.selectControl': 'Game-Steuerung auswählen',
-          'chat.title': 'Chat', 'chat.sendTo': 'Senden an',
+          'chat.title': 'Chat', 'chat.sendTo': 'Senden an', 'chat.importCopy': 'Chat-Importcode kopieren', 'chat.importHint': 'In Streamer.bot über „Import“ einfügen.', 'chat.importEmpty': 'Streamer.bot-Chat einrichten', 'chat.importEmptyHint': 'Importcode kopieren und in Streamer.bot importieren',
           'game.keyboardHint': 'Taste oder Tastenkombination anklicken.', 'game.keyboardLayout': 'Welche Tastatur',
           'game.actionMode': 'Ausführung', 'game.actionHold': 'Gedrückt halten', 'game.actionRepeat': 'Wiederholt auslösen', 'game.actionTap': 'Einmal antippen', 'game.actionBlock': 'Blockieren',
           'game.killProcess': 'Spiel/Programm', 'game.killSelect': 'Spiel auswählen…', 'game.killMode': 'Beenden-Modus', 'game.killGraceful': 'Normal schließen', 'game.killGracefulForce': 'Normal, danach erzwingen', 'game.killForce': 'Sofort erzwingen', 'game.killTimeout': 'Zeit bis zum Erzwingen',
@@ -16253,7 +16357,7 @@
         en: {
           'tab.links': 'Overlays', 'tab.images': 'Images', 'tab.overlays': 'Videos', 'tab.emoterain': 'Red Carpet', 'tab.gameControls': 'Game Controls', 'tab.diagnostics': 'Diagnostics', 'tab.settings': 'Settings',
           'game.controlsTitle': 'Game Controls', 'game.selectControl': 'Select game control',
-          'chat.title': 'Chat', 'chat.sendTo': 'Send to',
+          'chat.title': 'Chat', 'chat.sendTo': 'Send to', 'chat.importCopy': 'Copy chat import code', 'chat.importHint': 'Paste it into Streamer.bot using “Import”.', 'chat.importEmpty': 'Set up Streamer.bot chat', 'chat.importEmptyHint': 'Copy the import code and import it into Streamer.bot',
           'game.keyboardHint': 'Click a key or key combination.', 'game.keyboardLayout': 'Keyboard layout',
           'game.actionMode': 'Execution', 'game.actionHold': 'Hold down', 'game.actionRepeat': 'Trigger repeatedly', 'game.actionTap': 'Tap once', 'game.actionBlock': 'Block',
           'game.killProcess': 'Game/application', 'game.killSelect': 'Select game…', 'game.killMode': 'Close mode', 'game.killGraceful': 'Close normally', 'game.killGracefulForce': 'Close, then force', 'game.killForce': 'Force immediately', 'game.killTimeout': 'Time before forcing',
@@ -16360,7 +16464,7 @@
         es: {
           'tab.links': 'Overlays', 'tab.images': 'Imágenes', 'tab.overlays': 'Vídeos', 'tab.emoterain': 'Alfombra Roja', 'tab.gameControls': 'Controles de juego', 'tab.diagnostics': 'Diagnóstico', 'tab.settings': 'Ajustes',
           'game.controlsTitle': 'Controles de juego', 'game.selectControl': 'Seleccionar control de juego',
-          'chat.title': 'Chat', 'chat.sendTo': 'Enviar a',
+          'chat.title': 'Chat', 'chat.sendTo': 'Enviar a', 'chat.importCopy': 'Copiar código de importación del chat', 'chat.importHint': 'Pégalo en Streamer.bot mediante «Importar».', 'chat.importEmpty': 'Configurar el chat de Streamer.bot', 'chat.importEmptyHint': 'Copia el código e impórtalo en Streamer.bot',
           'game.keyboardHint': 'Haz clic en una tecla o combinación.', 'game.keyboardLayout': 'Distribución del teclado',
           'game.actionMode': 'Ejecución', 'game.actionHold': 'Mantener pulsado', 'game.actionRepeat': 'Activar repetidamente', 'game.actionTap': 'Pulsar una vez', 'game.actionBlock': 'Bloquear',
           'game.killProcess': 'Juego/aplicación', 'game.killSelect': 'Seleccionar juego…', 'game.killMode': 'Modo de cierre', 'game.killGraceful': 'Cerrar normalmente', 'game.killGracefulForce': 'Cerrar y luego forzar', 'game.killForce': 'Forzar inmediatamente', 'game.killTimeout': 'Tiempo antes de forzar',
@@ -20048,7 +20152,120 @@
       }
 
       var CHAT_PLATFORM_KEY = 'kappi.chat.platform';
+      var CHAT_IMPORT_CODE_URL = '/chat-import-code';
       var chatSendPending = {};
+      var chatImportCodeCache = '';
+      var chatImportResetTimer = null;
+
+      function chatImportTwitchReady() {
+        return !!(twToken() && twClientId() && twUser());
+      }
+
+      function chatImportStreamerReady() {
+        return !!(socket && socket.readyState === WebSocket.OPEN);
+      }
+
+      function updateChatImportUi() {
+        var empty = byId('chat-import-empty');
+        var logHost = byId('chat-log');
+        if (!empty || !logHost) return;
+        var hasMessages = !!logHost.querySelector('.chat-line');
+        empty.hidden = chatImportStreamerReady() || chatImportTwitchReady() || hasMessages;
+      }
+
+      function setChatImportBusy(busy) {
+        var emptyButton = byId('chat-import-copy-empty');
+        var settingsButton = byId('chat-import-copy-connections');
+        if (emptyButton) emptyButton.disabled = !!busy;
+        if (settingsButton) settingsButton.disabled = !!busy;
+      }
+
+      function resetChatImportLabels() {
+        var emptyLabel = byId('chat-import-empty-label');
+        var settingsLabel = byId('chat-import-connections-label');
+        if (emptyLabel) emptyLabel.textContent = gameControlText('Streamer.bot-Chat einrichten', 'Set up Streamer.bot chat', 'Configurar el chat de Streamer.bot');
+        if (settingsLabel) settingsLabel.textContent = gameControlText('Chat-Importcode kopieren', 'Copy chat import code', 'Copiar código de importación del chat');
+      }
+
+      function setChatImportFeedback(message, className) {
+        var status = byId('chat-import-connections-status');
+        if (!status) return;
+        status.textContent = message || '';
+        status.className = 'settings-hint' + (className ? ' ' + className : '');
+      }
+
+      function fallbackChatImportCopy(text) {
+        return new Promise(function (resolve, reject) {
+          var box = document.createElement('textarea');
+          box.value = text;
+          box.setAttribute('readonly', 'readonly');
+          box.style.position = 'fixed';
+          box.style.left = '-9999px';
+          document.body.appendChild(box);
+          box.select();
+          var copied = false;
+          try { copied = document.execCommand('copy'); } catch (err) {}
+          document.body.removeChild(box);
+          if (copied) resolve();
+          else reject(new Error('copy failed'));
+        });
+      }
+
+      function writeChatImportClipboard(text) {
+        if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+          return navigator.clipboard.writeText(text).catch(function () {
+            return fallbackChatImportCopy(text);
+          });
+        }
+        return fallbackChatImportCopy(text);
+      }
+
+      function loadChatImportCode() {
+        if (chatImportCodeCache) return Promise.resolve(chatImportCodeCache);
+        return fetch(CHAT_IMPORT_CODE_URL, { cache: 'no-store' }).then(function (response) {
+          if (!response.ok) throw new Error('HTTP ' + response.status);
+          return response.text();
+        }).then(function (text) {
+          text = String(text || '').trim();
+          if (!text) throw new Error('empty import');
+          chatImportCodeCache = text;
+          return text;
+        });
+      }
+
+      function copyChatImportCode() {
+        setChatImportBusy(true);
+        setChatImportFeedback(gameControlText('Importcode wird kopiert …', 'Copying import code …', 'Copiando el código …'), '');
+        loadChatImportCode().then(writeChatImportClipboard).then(function () {
+          var emptyLabel = byId('chat-import-empty-label');
+          var settingsLabel = byId('chat-import-connections-label');
+          var copied = gameControlText('Importcode kopiert ✓', 'Import code copied ✓', 'Código copiado ✓');
+          if (emptyLabel) emptyLabel.textContent = copied;
+          if (settingsLabel) settingsLabel.textContent = copied;
+          setChatImportFeedback(gameControlText(
+            'Kopiert ✓ Jetzt in Streamer.bot über „Import“ einfügen.',
+            'Copied ✓ Now paste it into Streamer.bot using “Import”.',
+            'Copiado ✓ Ahora pégalo en Streamer.bot mediante «Importar».'
+          ), 'running');
+          if (chatImportResetTimer) window.clearTimeout(chatImportResetTimer);
+          chatImportResetTimer = window.setTimeout(function () {
+            resetChatImportLabels();
+            setChatImportFeedback(gameControlText(
+              'In Streamer.bot über „Import“ einfügen.',
+              'Paste it into Streamer.bot using “Import”.',
+              'Pégalo en Streamer.bot mediante «Importar».'
+            ), '');
+          }, 2400);
+        }).catch(function () {
+          setChatImportFeedback(gameControlText(
+            'Importcode konnte nicht kopiert werden. FreakShow bitte neu starten.',
+            'The import code could not be copied. Restart FreakShow.',
+            'No se pudo copiar el código. Reinicia FreakShow.'
+          ), 'suspended');
+        }).then(function () {
+          setChatImportBusy(false);
+        });
+      }
 
       function chatPlatformLabel(platform) {
         return platform === 'youtube' ? 'YouTube' : (platform === 'kick' ? 'Kick' : 'Twitch');
@@ -20115,6 +20332,7 @@
         updateChatSendReadiness();
       }
       function updateChatSendReadiness() {
+        updateChatImportUi();
         // Nur den Ruhezustand beschreiben; waehrend eines laufenden Sendevorgangs
         // (Knopf gesperrt) nicht dazwischenfunken.
         var button = byId('chat-send-btn');
@@ -20324,6 +20542,9 @@
         initChatPlatform();
         var sendBtn = byId('chat-send-btn'); if (sendBtn) sendBtn.onclick = sendChatMessage;
         var chatMsg = byId('chat-send-msg'); if (chatMsg) chatMsg.addEventListener('keydown', function (e) { if (e.key === 'Enter') sendChatMessage(); });
+        var chatImportEmpty = byId('chat-import-copy-empty'); if (chatImportEmpty) chatImportEmpty.onclick = copyChatImportCode;
+        var chatImportConnections = byId('chat-import-copy-connections'); if (chatImportConnections) chatImportConnections.onclick = copyChatImportCode;
+        resetChatImportLabels();
         updateChatSendReadiness();
 
         // Token, den das Login-Popup zurückschickt, entgegennehmen – nur von einer
@@ -24273,6 +24494,7 @@
       byId('btn-clear').onclick = function () {
         byId('log').innerHTML = '';
         byId('chat-log').innerHTML = '';
+        if (typeof updateChatImportUi === 'function') updateChatImportUi();
         var rc = byId('recognized'); if (rc) rc.innerHTML = '';
         state.recognized = [];
         setStatus();

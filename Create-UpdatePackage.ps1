@@ -56,6 +56,7 @@ $rootFiles = @(
   'OverlayIcon.ico',
   'LICENSE',
   'CHANGELOG.md',
+  'FreakShow-Chat-Sender.sb',
   'README-FIRST.txt',
   'README.txt',
   'VERSION.txt'
