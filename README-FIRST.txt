@@ -1,7 +1,7 @@
-FreakShow 1.2.0
+FreakShow 1.2.1
 ===============
 
-Diese Version enthaelt den grossen Funktionsstand 1.2.0.
+Diese Version enthaelt den Funktionsstand 1.2.1.
 Eine vollstaendige Aenderungsliste steht in CHANGELOG.md.
 
 DEUTSCH

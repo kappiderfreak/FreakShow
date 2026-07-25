@@ -25,10 +25,21 @@ param(
   [int]$WsProxyPort = 18082,
   [string]$OverlayExePath = (Join-Path $PSScriptRoot 'HtmlWindowsOverlayModern.exe'),
   [string]$SettingsPagePath = (Join-Path $PSScriptRoot 'app\websocket-diagnose.html'),
+  [string]$ChatImportCode = '',
   [switch]$EmbeddedHost
 )
 
 $ErrorActionPreference = 'Stop'
+if ([string]::IsNullOrWhiteSpace($ChatImportCode)) {
+  $chatImportPath = Join-Path $PSScriptRoot 'FreakShow-Chat-Sender.sb'
+  try {
+    if (Test-Path -LiteralPath $chatImportPath -PathType Leaf) {
+      $ChatImportCode = [System.IO.File]::ReadAllText($chatImportPath, [System.Text.Encoding]::UTF8).Trim()
+    }
+  } catch {
+    $ChatImportCode = ''
+  }
+}
 # Die eingebettete PowerShell-Runspace laedt System.Security nicht auf jedem Rechner
 # automatisch. DPAPI fuer private Zugangsdaten deshalb explizit bereitstellen.
 try { Add-Type -AssemblyName System.Security -ErrorAction Stop } catch {}
@@ -3405,6 +3416,18 @@ while ($true) {
 
     if ($method -eq 'GET' -and $path -eq '/overlay-config.js') {
       Write-StaticFileResponse -Stream $stream -Path (Join-Path $AppRoot 'overlay-config.js') -ContentType 'text/javascript'
+      continue
+    }
+
+    # Der Chat-Import muss schon vor einer Streamer.bot- oder Twitch-Verbindung
+    # erreichbar sein. Der Code ist als EXE-Ressource eingebettet; beim direkten
+    # PowerShell-Start wird dieselbe .sb-Datei aus dem Projekt-Root geladen.
+    if ($method -eq 'GET' -and $path -eq '/chat-import-code') {
+      if ([string]::IsNullOrWhiteSpace($ChatImportCode)) {
+        Write-HttpResponse -Stream $stream -StatusCode 404 -Reason 'Not Found' -Body 'chat import unavailable' -ContentType 'text/plain'
+      } else {
+        Write-HttpResponse -Stream $stream -StatusCode 200 -Reason 'OK' -Body $ChatImportCode -ContentType 'text/plain'
+      }
       continue
     }
 

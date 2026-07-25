@@ -13,6 +13,7 @@ $hostArgs = @(
   ('/out:' + (Join-Path $root 'FreakShow.exe')),
   ('/win32icon:' + (Join-Path $root 'OverlayIcon.ico')),
   ('/resource:' + (Join-Path $root 'EmbeddedBridge.ps1') + ',EmbeddedBridge.ps1'),
+  ('/resource:' + (Join-Path $root 'FreakShow-Chat-Sender.sb') + ',FreakShow.ChatSenderImport'),
   '/reference:System.dll', '/reference:System.Core.dll', '/reference:System.Drawing.dll', '/reference:System.Windows.Forms.dll',
   '/reference:System.Web.Extensions.dll',
   ('/reference:' + $psAssembly),
