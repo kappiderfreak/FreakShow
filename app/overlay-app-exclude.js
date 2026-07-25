@@ -12,7 +12,9 @@
   window.__KAPPI_APP_EXCLUDE_ACTIVE__ = true;
 
   var URL_ = location.origin + '/excluded-apps';
-  var POLL_MS = 150;   // schnell nachziehen -> Hotkey/Overlay-Ausgabe schaltet fast verzoegerungsfrei (war 600)
+  // Unter einer Sekunde bleibt fuer Hotkeys ausreichend direkt, vermeidet aber die
+  // frueheren 6-7 neuen TCP-Verbindungen pro Sekunde nur fuer diesen einen Zustand.
+  var POLL_MS = 750;
   var suspended = false;
 
   function ensureStyle() {

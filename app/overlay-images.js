@@ -145,7 +145,7 @@
 
   fetchAndRender();
   // Schnelles Intervall, damit Bewegen/Ausblenden im Overlay flott nachzieht.
-  setInterval(fetchAndRender, 400);
+  setInterval(fetchAndRender, 1500);
   // Streamer.bot-Client evtl. erst spaeter bereit -> mit Wiederholung binden.
   if (!bindTrigger()) {
     var _tries = 0;

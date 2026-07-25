@@ -121,7 +121,9 @@
                     retries: -1,
                     subscribe: {
                         General: ['Custom'],
-                        Twitch: ['ChatMessage', 'RewardRedemption']
+                        Twitch: ['ChatMessage', 'RewardRedemption'],
+                        YouTube: ['Message'],
+                        Kick: ['ChatMessage']
                     },
                     onConnect: function () {
                         disconnectedSince = 0;
@@ -188,9 +190,10 @@
         })();
     </script>
 
-    <script src="/app/video-overlay-manager.js?v=20260717-priority-switch2"></script>
+    <script src="/app/video-overlay-manager.js?v=20260725-video-crop-scale1"></script>
+    <script src="/app/game-control-trigger.js?v=20260719-status-image1"></script>
     <script src="/app/emote-rain-anim.js?v=20260710-shapes2"></script>
-    <script src="/app/emote-rain-user.js?v=20260708-er9-sbtrigger"></script>
+    <script src="/app/emote-rain-user.js?v=20260722-youtube2"></script>
     <script src="/app/overlay-layers.js?v=20260710-endgame"></script>
     <script src="/app/overlay-images.js?v=20260711-imgtrigger"></script>
     <script src="/app/overlay-heartbeat.js?v=20260716-viewport1"></script>
@@ -214,9 +217,9 @@
         }, 800);
     </script>
     <script src="/app/giphy-sb-local-overlay.js"></script>
-    <script src="/app/external-overlay-links.js?v=20260705-noref1"></script>
+    <script src="/app/external-overlay-links.js?v=20260721-position-theme2"></script>
     <script src="/app/kappi-markdown.js?v=20260712-md1"></script>
-    <script src="/app/endgame-cheatsheet.js?v=20260714-vars2"></script>
+    <script src="/app/endgame-cheatsheet.js?v=20260725-note-event-vars1"></script>
     <!-- Beispiele für dedizierte Trigger-Dateien (bleiben wie gehabt) -->
 
     <script type="module" src="media/videos/main/BA_9mm_GO_Bang/BA_9mm_GO_Bang.js"></script>

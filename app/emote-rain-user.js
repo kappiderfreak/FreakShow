@@ -9,7 +9,7 @@
   var USERS_URL = location.origin + '/emote-rain-users';
   var TEST_URL = location.origin + '/emote-rain-test';
   var POLL_MS = 3000;
-  var TEST_POLL_MS = 700;
+  var TEST_POLL_MS = 1000;
   var COOLDOWN_MS = 4000; // pro User: nicht bei jeder Nachricht neu regnen
 
   var users = {};          // login(lowercase) -> config
@@ -38,7 +38,16 @@
     } catch (e) {}
   }
 
-  function avatarUrl(name) { return 'https://unavatar.io/twitch/' + encodeURIComponent(String(name || '').toLowerCase()); }
+  function platformName(value) {
+    value = String(value || '').toLowerCase();
+    return (value === 'youtube' || value === 'kick') ? value : 'twitch';
+  }
+  function avatarUrl(cfg) {
+    cfg = cfg || {};
+    var direct = asStr(cfg.avatarUrl) || asStr(cfg.userProfileUrl);
+    if (direct) return direct;
+    return 'https://unavatar.io/' + platformName(cfg.platform) + '/' + encodeURIComponent(String(cfg.name || '').toLowerCase());
+  }
   function clampNum(v, d, min, max) { v = Number(v); if (!isFinite(v)) v = d; return Math.max(min, Math.min(max, v)); }
   // Nur echte Strings/Zahlen zurueckgeben -> nie "[object Object]".
   function asStr(v) { return (typeof v === 'string') ? v : (typeof v === 'number' ? String(v) : ''); }
@@ -87,7 +96,7 @@
     if (window.KappiRainAnim && window.KappiRainAnim.play) {
       window.KappiRainAnim.play(cfg, document.body, {
         fixed: true,
-        avatarUrl: avatarUrl(cfg.name),
+        avatarUrl: avatarUrl(cfg),
         displayName: asStr(displayName) || asStr(cfg.name)
       });
       return;
@@ -97,7 +106,7 @@
     var count = clampNum(cfg.count, 16, 1, 80);
     var mode = cfg.colorMode || 'original';
     var color = /^#[0-9a-f]{6}$/i.test(cfg.colorValue || '') ? cfg.colorValue : '#83f28f';
-    var url = avatarUrl(cfg.name);
+    var url = avatarUrl(cfg);
 
     for (var i = 0; i < count; i++) {
       var p = document.createElement('span');
@@ -147,8 +156,13 @@
     var login = (asStr(m.username) || asStr(u.login) || asStr(u.name) || uStr ||
                  asStr(data.userName) || asStr(data.username)).toLowerCase();
     var display = asStr(m.displayName) || asStr(u.displayName) || asStr(u.name) ||
-                  asStr(data.displayName) || login;
+                  asStr(data.displayName) || uStr || login;
     return { login: login, display: display };
+  }
+
+  function chatPlatform(payload) {
+    var source = payload && payload.event ? asStr(payload.event.source).toLowerCase() : '';
+    return (source === 'youtube' || source === 'kick' || source === 'twitch') ? source : '';
   }
 
   function onChat(payload) {
@@ -157,6 +171,8 @@
     if (!cu.login) return;
     var cfg = users[cu.login];
     if (!cfg || cfg.enabled === false) return;
+    var source = chatPlatform(payload);
+    if (source && cfg.platform && platformName(cfg.platform) !== source) return;
     var now = Date.now();
     var period = greetMs > 0 ? greetMs : COOLDOWN_MS;
     if (cooldown[cu.login] && (now - cooldown[cu.login]) < period) return;

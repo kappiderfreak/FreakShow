@@ -202,6 +202,12 @@ internal static class FreakShowUpdaterProgram
                    extension == ".svg" || extension == ".png" || extension == ".webp" || extension == ".ico" ||
                    extension == ".woff" || extension == ".woff2" || extension == ".ttf";
         }
+        if (relative.StartsWith("automation/", StringComparison.OrdinalIgnoreCase))
+        {
+            string extension = Path.GetExtension(relative);
+            return String.Equals(extension, ".ahk", StringComparison.OrdinalIgnoreCase) ||
+                   String.Equals(extension, ".ps1", StringComparison.OrdinalIgnoreCase);
+        }
         return AllowedRootFiles.Contains(relative);
     }
 

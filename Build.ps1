@@ -2,9 +2,11 @@ $ErrorActionPreference = 'Stop'
 $csc = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
 $psAssembly = 'C:\Windows\Microsoft.NET\assembly\GAC_MSIL\System.Management.Automation\v4.0_3.0.0.0__31bf3856ad364e35\System.Management.Automation.dll'
 $root = $PSScriptRoot
+$appRoot = Join-Path $root 'app'
 
 if (-not (Test-Path -LiteralPath $csc)) { throw "C#-Compiler fehlt: $csc" }
 if (-not (Test-Path -LiteralPath $psAssembly)) { throw "PowerShell-Assembly fehlt: $psAssembly" }
+if (-not (Test-Path -LiteralPath $appRoot)) { throw "App-Ordner fehlt: $appRoot" }
 
 $hostArgs = @(
   '/nologo', '/target:winexe', '/platform:x64', '/optimize+', '/debug-',
@@ -15,7 +17,16 @@ $hostArgs = @(
   '/reference:System.Web.Extensions.dll',
   ('/reference:' + $psAssembly),
   ('/reference:' + (Join-Path $root 'Microsoft.Web.WebView2.Core.dll')),
-  ('/reference:' + (Join-Path $root 'Microsoft.Web.WebView2.WinForms.dll')),
+  ('/reference:' + (Join-Path $root 'Microsoft.Web.WebView2.WinForms.dll'))
+)
+
+$appFiles = @(Get-ChildItem -LiteralPath $appRoot -File | Sort-Object Name)
+if ($appFiles.Count -eq 0) { throw "Keine App-Dateien gefunden: $appRoot" }
+foreach ($file in $appFiles) {
+  $hostArgs += '/resource:' + $file.FullName + ',FreakShow.App.' + $file.Name
+}
+
+$hostArgs += @(
   (Join-Path $root 'VersionInfo.cs'),
   (Join-Path $root 'UpdateService.cs'),
   (Join-Path $root 'Host.cs')
@@ -38,4 +49,4 @@ $updaterArgs = @(
 & $csc $updaterArgs
 if ($LASTEXITCODE -ne 0) { throw "Updater-Build fehlgeschlagen (csc exit $LASTEXITCODE)." }
 Copy-Item -LiteralPath (Join-Path $root 'App.config') -Destination (Join-Path $root 'FreakShowUpdater.exe.config') -Force
-Write-Host 'Build OK: FreakShow.exe + FreakShowUpdater.exe'
+Write-Host ("Build OK: FreakShow.exe mit {0} eingebetteten App-Dateien + FreakShowUpdater.exe" -f $appFiles.Count)

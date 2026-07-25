@@ -25,7 +25,7 @@
   var EFFECT_STORAGE_KEY = 'kappi.emoteRain.settings';
   var CONTROL_CHANNEL_NAME = 'kappi-overlay-control';
   var BRIDGE_SETTINGS_URL = location.origin + '/emote-rain-settings.json';
-  var BRIDGE_POLL_MS = 1000;
+  var BRIDGE_POLL_MS = 1500;
   var DIAGNOSE_ONLY = window.KAPPI_EMOTE_RAIN_DIAGNOSE_ONLY === true;
 
   var CONFIG = {
