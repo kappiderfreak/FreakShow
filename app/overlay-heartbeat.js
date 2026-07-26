@@ -6,6 +6,9 @@
  */
 (function () {
   'use strict';
+  // Eine zusätzliche Browser-/OBS-Ausgabe ist kein Host-Overlay. Sie darf
+  // weder dessen Verbindungsstatus noch dessen echte Monitorgröße überschreiben.
+  if (/[?&]outputViewer=1(?:&|$)/.test(window.location.search || '')) return;
   if (window.__KAPPI_HEARTBEAT_ACTIVE__) return;
   window.__KAPPI_HEARTBEAT_ACTIVE__ = true;
 

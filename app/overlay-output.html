@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="referrer" content="no-referrer">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>FreakShow</title>
+  <style>
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background: transparent !important;
+    }
+
+    /* Die Ausgabe rechnet IMMER in der eingestellten Monitoraufloesung (z. B.
+       3440x1440) und wird danach als Ganzes auf die Quellgroesse skaliert.
+       So sitzen Videos, Bilder und Notizen exakt wie im Editor - unabhaengig
+       davon, wie gross die Browserquelle in OBS eingestellt ist. */
+    #freakshow-output {
+      position: fixed;
+      left: 0;
+      top: 0;
+      display: block;
+      width: 100%;
+      height: 100%;
+      border: 0;
+      background: transparent;
+      transform-origin: top left;
+    }
+  </style>
+</head>
+<body>
+  <!--
+    Reine transparente Ausgabe: Der vorhandene produktive Renderer bleibt die
+    einzige Quelle der Wahrheit. Dadurch erscheinen hier automatisch dieselben
+    Videos, Bilder, Notizen, Web-Overlays, Ebenen und Streamer.bot-Ereignisse –
+    ohne Monitorrahmen, Raster oder Bedienelemente.
+  -->
+  <iframe
+    id="freakshow-output"
+    title="FreakShow"
+    src="/content/index.html?outputViewer=1"
+    allow="autoplay; fullscreen; clipboard-read; clipboard-write; local-network-access; local-network; loopback-network"
+    referrerpolicy="no-referrer"
+  ></iframe>
+  <script>
+    (function () {
+      'use strict';
+
+      var lastSoundToken = null;
+      var audioContext = null;
+
+      // ===== Massstab der Ausgabe =====
+      // Der Renderer arbeitet in der eingestellten Monitoraufloesung. Ist die
+      // Browserquelle in OBS anders gross (oder hat ein anderes Seitenverhaeltnis),
+      // wuerde ohne diese Umrechnung alles verschoben oder verzerrt erscheinen.
+      // Deshalb: iframe auf exakt die Monitormasse setzen und die ganze Flaeche
+      // proportional einpassen (nichts wird verzerrt, nichts abgeschnitten).
+      var monitorWidth = 0;
+      var monitorHeight = 0;
+
+      function applyOutputScale() {
+        var frame = document.getElementById('freakshow-output');
+        if (!frame) return;
+        var w = monitorWidth, h = monitorHeight;
+        if (!(w > 0) || !(h > 0)) {
+          // Noch keine Masse bekannt: bildschirmfuellend lassen.
+          frame.style.width = '100%';
+          frame.style.height = '100%';
+          frame.style.transform = 'none';
+          return;
+        }
+        var viewW = window.innerWidth || w;
+        var viewH = window.innerHeight || h;
+        var scale = Math.min(viewW / w, viewH / h);
+        if (!(scale > 0)) scale = 1;
+        frame.style.width = w + 'px';
+        frame.style.height = h + 'px';
+        var offsetX = Math.round((viewW - w * scale) / 2);
+        var offsetY = Math.round((viewH - h * scale) / 2);
+        frame.style.transform = 'translate(' + offsetX + 'px, ' + offsetY + 'px) scale(' + scale + ')';
+      }
+
+      function loadMonitorSize() {
+        fetch('/external-links?t=' + Date.now(), { cache: 'no-store' })
+          .then(function (response) { return response.ok ? response.json() : null; })
+          .then(function (data) {
+            if (!data) return;
+            var w = Number(data.monitorWidth) || 0;
+            var h = Number(data.monitorHeight) || 0;
+            if (w > 100 && h > 100 && (w !== monitorWidth || h !== monitorHeight)) {
+              monitorWidth = w;
+              monitorHeight = h;
+              applyOutputScale();
+            }
+          })
+          .catch(function () {});
+      }
+
+      window.addEventListener('resize', applyOutputScale);
+
+      // ===== Selbstheilung der Ausgabe =====
+      // Startet FreakShow neu (oder war die Bridge kurz weg), bleibt eine
+      // Browserquelle sonst auf der alten, toten Seite stehen und muesste in OBS
+      // von Hand aktualisiert werden. Beides wird hier automatisch erkannt und
+      // die Ausgabe frisch geladen - inklusive aller Videos, Bilder und Overlays.
+      var lastBootId = null;
+      var bridgeWasOffline = false;
+      var reloadInProgress = false;
+
+      function reloadOutput(reason) {
+        if (reloadInProgress) return;
+        reloadInProgress = true;
+        var frame = document.getElementById('freakshow-output');
+        if (!frame) { reloadInProgress = false; return; }
+        try {
+          // Frischer Ladevorgang mit Cache-Umgehung, damit wirklich alles neu kommt.
+          frame.src = '/content/index.html?outputViewer=1&reload=' + Date.now();
+        } catch (e) {}
+        // Kurze Sperre, damit ein Neustart nicht mehrfach hintereinander ausloest.
+        window.setTimeout(function () { reloadInProgress = false; }, 4000);
+      }
+
+      function noteBridgeState(reachable, bootId) {
+        if (!reachable) {
+          bridgeWasOffline = true;
+          return;
+        }
+        if (bootId !== null && bootId !== undefined) {
+          if (lastBootId === null) {
+            lastBootId = bootId;
+          } else if (bootId !== lastBootId) {
+            // FreakShow wurde neu gestartet -> Ausgabe neu aufbauen.
+            lastBootId = bootId;
+            bridgeWasOffline = false;
+            reloadOutput('neustart');
+            return;
+          }
+        }
+        if (bridgeWasOffline) {
+          // Verbindung war weg und ist wieder da -> sicherheitshalber neu laden.
+          bridgeWasOffline = false;
+          reloadOutput('wiederverbunden');
+        }
+      }
+
+      function playSoundTest() {
+        try {
+          var AudioContext = window.AudioContext || window.webkitAudioContext;
+          if (!AudioContext) return;
+          if (!audioContext) audioContext = new AudioContext();
+
+          function play() {
+            if (audioContext.state !== 'running') return;
+            var now = audioContext.currentTime;
+            var gain = audioContext.createGain();
+            var first = audioContext.createOscillator();
+            var second = audioContext.createOscillator();
+            gain.gain.setValueAtTime(0.0001, now);
+            gain.gain.exponentialRampToValueAtTime(0.16, now + 0.025);
+            gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.42);
+            first.frequency.setValueAtTime(523.25, now);
+            second.frequency.setValueAtTime(783.99, now + 0.13);
+            first.connect(gain);
+            second.connect(gain);
+            gain.connect(audioContext.destination);
+            first.start(now);
+            first.stop(now + 0.24);
+            second.start(now + 0.13);
+            second.stop(now + 0.42);
+          }
+
+          if (audioContext.state === 'suspended') {
+            audioContext.resume().then(play, function () {});
+          } else {
+            play();
+          }
+        } catch (e) {}
+      }
+
+      function pollSoundTest() {
+        fetch('/output-sound-test?t=' + Date.now(), { cache: 'no-store' })
+          .then(function (response) { return response.ok ? response.json() : null; })
+          .then(function (state) {
+            if (!state || typeof state.token === 'undefined') {
+              noteBridgeState(false, null);
+              return;
+            }
+            // Erreichbar: auf Neustart pruefen und ggf. die Ausgabe erneuern.
+            noteBridgeState(true, typeof state.bootId === 'undefined' ? null : state.bootId);
+            var token = Number(state.token) || 0;
+            if (lastSoundToken === null) {
+              lastSoundToken = token;
+              return;
+            }
+            if (token !== lastSoundToken) {
+              lastSoundToken = token;
+              playSoundTest();
+            }
+          })
+          .catch(function () { noteBridgeState(false, null); });
+      }
+
+      // Ein Klick in einem normalen Browser hebt dessen mögliche Audio-Sperre auf.
+      // OBS-Browserquellen erlauben den Ton in der Regel bereits ohne diesen Schritt.
+      window.addEventListener('pointerdown', function () {
+        try {
+          var AudioContext = window.AudioContext || window.webkitAudioContext;
+          if (!audioContext && AudioContext) audioContext = new AudioContext();
+          if (audioContext && audioContext.state === 'suspended') audioContext.resume();
+        } catch (e) {}
+      }, { passive: true });
+
+      pollSoundTest();
+      window.setInterval(pollSoundTest, 350);
+      // Monitormasse laden und im Auge behalten (Preset-Wechsel wirkt so sofort).
+      loadMonitorSize();
+      window.setInterval(loadMonitorSize, 4000);
+      // OBS meldet Groessenaenderungen der Browserquelle nicht immer ueber ein
+      // resize-Ereignis. Deshalb den Massstab zusaetzlich regelmaessig pruefen und
+      // direkt nach dem Start mehrfach setzen, damit er sofort richtig sitzt.
+      var lastViewport = '';
+      window.setInterval(function () {
+        var current = (window.innerWidth || 0) + 'x' + (window.innerHeight || 0);
+        if (current !== lastViewport) {
+          lastViewport = current;
+          applyOutputScale();
+        }
+      }, 1000);
+      applyOutputScale();
+      window.setTimeout(applyOutputScale, 300);
+      window.setTimeout(applyOutputScale, 1200);
+    })();
+  </script>
+</body>
+</html>

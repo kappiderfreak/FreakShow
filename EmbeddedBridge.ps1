@@ -877,6 +877,7 @@ namespace KappiProxy {
     private readonly string _configPath;
     private readonly string _fallbackHost;
     private readonly int _fallbackPort;
+    private readonly string _allowedIpsPath;
     private TcpListener _listener;
     private volatile bool _running;
 
@@ -885,10 +886,53 @@ namespace KappiProxy {
       _configPath = configPath;
       _fallbackHost = fallbackHost;
       _fallbackPort = fallbackPort;
+      _allowedIpsPath = null;
+    }
+
+    // Zusaetzlicher Pfad zur IP-Freigabeliste: der Relay ist dann auch im LAN
+    // erreichbar (noetig, wenn die Ausgabe auf einem ZWEITEN PC laeuft), laesst
+    // aber nur dieselben Geraete durch wie die Bridge selbst.
+    public TcpRelay(int listenPort, string configPath, string fallbackHost, int fallbackPort, string allowedIpsPath) {
+      _listenPort = listenPort;
+      _configPath = configPath;
+      _fallbackHost = fallbackHost;
+      _fallbackPort = fallbackPort;
+      _allowedIpsPath = allowedIpsPath;
+    }
+
+    // Ohne Freigabeliste bleibt es beim bisherigen Verhalten: nur lokal.
+    private bool IsRemoteAllowed(TcpClient client) {
+      if (_allowedIpsPath == null) return true;
+      string ip = null;
+      try {
+        IPEndPoint ep = client.Client.RemoteEndPoint as IPEndPoint;
+        if (ep != null) ip = ep.Address.ToString();
+      } catch { }
+      if (ip == null) return false;
+      if (ip.StartsWith("::ffff:")) ip = ip.Substring(7);
+      if (ip == "127.0.0.1" || ip == "::1") return true;          // eigener PC immer
+      try {
+        foreach (IPAddress own in Dns.GetHostAddresses(Dns.GetHostName())) {
+          if (own.ToString().Split('%')[0] == ip) return true;    // eigene LAN-Adressen immer
+        }
+      } catch { }
+      try {
+        string raw = File.ReadAllText(_allowedIpsPath);
+        bool anyListed = false;
+        foreach (Match m in Regex.Matches(raw, "\"([0-9a-fA-F\\.:]{3,45})\"")) {
+          string entry = m.Groups[1].Value;
+          if (entry == "ips") continue;
+          anyListed = true;
+          if (entry == ip) return true;
+        }
+        if (!anyListed) return false;                             // leere Liste = nur dieser PC
+      } catch { }
+      return false;
     }
 
     public void Start() {
-      _listener = new TcpListener(IPAddress.Loopback, _listenPort);
+      // Auf allen Adressen lauschen; der Zugriff wird pro Verbindung geprueft.
+      _listener = new TcpListener(_allowedIpsPath == null ? IPAddress.Loopback : IPAddress.Any, _listenPort);
       _listener.Start();
       _running = true;
       Thread t = new Thread(AcceptLoop);
@@ -925,6 +969,7 @@ namespace KappiProxy {
     private void Handle(TcpClient client) {
       TcpClient server = null;
       try {
+        if (!IsRemoteAllowed(client)) { try { client.Close(); } catch { } return; }
         string host; int port;
         ReadTarget(out host, out port);
         client.NoDelay = true;
@@ -964,7 +1009,7 @@ namespace KappiProxy {
 
 function Start-WsRelayProxy {
   try {
-    $relay = New-Object KappiProxy.TcpRelay -ArgumentList $WsProxyPort, $WebSocketConfigPath, '127.0.0.1', 8081
+    $relay = New-Object KappiProxy.TcpRelay -ArgumentList $WsProxyPort, $WebSocketConfigPath, '127.0.0.1', 8081, $AllowedIpsPath
     $relay.Start()
     $script:WsRelay = $relay
     Write-Host "WS-Relay-Proxy laeuft auf 127.0.0.1:$WsProxyPort -> Streamer.bot (Ziel aus websocket-config.json)"
@@ -2709,6 +2754,9 @@ function Get-ExternalPreviewDefinition {
     'mustached-viewer-queue' {
       return @{ Url = 'https://mustachedmaniac.com/widgets/Viewer_Queue/'; Base = 'https://mustachedmaniac.com/widgets/Viewer_Queue/' }
     }
+    'twitch-alertbox' {
+      return @{ Url = 'https://dashboard.twitch.tv/widgets/alertbox'; Base = 'https://dashboard.twitch.tv/' }
+    }
     default { return $null }
   }
 }
@@ -3229,6 +3277,18 @@ $videoTrigger = [ordered]@{
   updatedAt = 0
 }
 
+$outputSoundTest = [ordered]@{
+  ok = $true
+  token = 0
+  updatedAt = 0
+}
+
+# Kennung dieses Bridge-Starts. Die Ausgabeseite (/freakshow, z. B. als
+# OBS-Browserquelle) erkennt daran einen Neustart von FreakShow und laedt sich
+# dann selbst neu - sonst bliebe die Quelle auf der alten, toten Seite stehen
+# und muesste in OBS von Hand aktualisiert werden.
+$BridgeBootId = Get-NowMilliseconds
+
 $emoteRainTest = [ordered]@{
   ok = $true
   name = ''
@@ -3574,6 +3634,11 @@ while ($true) {
     # index.html liegt jetzt in app/, wird aber weiter unter /content/index.html
     # ausgeliefert, damit der relative Basis-Pfad (/content/) fuer die 82 Video-Module
     # und die Effekt-Skripte korrekt bleibt.
+    if ($method -eq 'GET' -and ($path -eq '/freakshow' -or $path -eq '/freakshow.html' -or $path -eq '/output' -or $path -eq '/output.html' -or $path -eq '/overlay-output' -or $path -eq '/overlay-output.html')) {
+      Write-BinaryFileResponse -Stream $stream -Path (Join-Path $AppRoot 'overlay-output.html') -Headers $headers
+      continue
+    }
+
     if ($method -eq 'GET' -and ($path -eq '/content/index.html' -or $path.StartsWith('/content/index.html?', [System.StringComparison]::OrdinalIgnoreCase))) {
       Write-BinaryFileResponse -Stream $stream -Path (Join-Path $AppRoot 'index.html') -Headers $headers
       continue
@@ -4130,6 +4195,28 @@ while ($true) {
 
     if ($method -eq 'GET' -and ($path -eq '/emote-rain-test' -or $path -eq '/overlay/emote-rain-test')) {
       Write-HttpResponse -Stream $stream -StatusCode 200 -Reason 'OK' -Body ($emoteRainTest | ConvertTo-Json -Compress)
+      continue
+    }
+
+    if ($method -eq 'GET' -and ($path -eq '/output-sound-test' -or $path -eq '/overlay/output-sound-test')) {
+      # bootId mitgeben: daran erkennt die Ausgabeseite einen Neustart.
+      $soundState = [ordered]@{
+        ok = $true
+        token = $outputSoundTest.token
+        updatedAt = $outputSoundTest.updatedAt
+        bootId = $BridgeBootId
+      }
+      Write-HttpResponse -Stream $stream -StatusCode 200 -Reason 'OK' -Body ($soundState | ConvertTo-Json -Compress)
+      continue
+    }
+
+    if ($method -eq 'POST' -and ($path -eq '/output-sound-test' -or $path -eq '/overlay/output-sound-test')) {
+      $outputSoundTest = [ordered]@{
+        ok = $true
+        token = ([int64]$outputSoundTest.token + 1)
+        updatedAt = Get-NowMilliseconds
+      }
+      Write-HttpResponse -Stream $stream -StatusCode 200 -Reason 'OK' -Body ($outputSoundTest | ConvertTo-Json -Compress)
       continue
     }
 

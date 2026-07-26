@@ -11,12 +11,12 @@
   var POSITION_PREVIEW_URL = location.origin + '/position-preview';
   var POSITION_PREVIEW_ACK_URL = location.origin + '/position-preview-ack';
   var UI_STATE_URL = location.origin + '/ui-state';
-  var POSITION_PREVIEW_POLL_MS = 1500;
+  var POSITION_PREVIEW_POLL_MS = 450;
   var POSITION_THEME_POLL_MS = 2000;
   var POSITION_PREVIEW_SCRIPT_VERSION = '20260721-theme2';
   var EXTERNAL_LINKS_URL = location.origin + '/external-links';
   var EXTERNAL_LINKS_RUNTIME_URL = location.origin + '/external-links/runtime';
-  var EXTERNAL_LINKS_POLL_MS = 2500;
+  var EXTERNAL_LINKS_POLL_MS = 1000;
   var lastSignature = '';
   var lastPreviewSignature = '';
   var lastPreviewAckAt = 0;
@@ -206,6 +206,15 @@
     return false;
   }
 
+  function isTwitchAlertboxUrl(url) {
+    var parts = parseUrl(String(url || ''));
+    var match = String(parts.base || '').match(/^[a-z][a-z0-9+.-]*:\/\/([^\/?#]+)(\/[^?#]*)?$/i);
+    if (!match) return false;
+    var host = String(match[1] || '').split('@').pop().split(':')[0].toLowerCase();
+    var path = String(match[2] || '/').toLowerCase();
+    return host === 'dashboard.twitch.tv' && path.indexOf('/widgets/alertbox') === 0;
+  }
+
   // Verbindungs-Parameter (evtl. frueher fest eingebacken) aus einer URL entfernen.
   var CONNECTION_QUERY_KEYS = [
     'address', 'addr', 'host', 'hostname', 'ip', 'port',
@@ -230,12 +239,52 @@
   // aufbauen (Mixed Content) - nur zu 127.0.0.1. Laeuft Streamer.bot auf einem
   // anderen PC, leiten wir solche Overlays ueber 127.0.0.1:PROXY, das die Bridge
   // transparent zum echten Streamer.bot weiterreicht.
-  var PROXY_HOST = '127.0.0.1';
+  // Der Relay laeuft immer auf DEM PC, von dem diese Seite geladen wurde.
+  // Bei lokaler Anzeige ist das 127.0.0.1, bei der Ausgabe auf einem zweiten PC
+  // (z. B. OBS im Netzwerk) die LAN-Adresse dieses Hosts.
+  var PROXY_HOST = (function () {
+    try {
+      var h = String(window.location.hostname || '').trim();
+      return h ? h : '127.0.0.1';
+    } catch (err) { return '127.0.0.1'; }
+  })();
   var PROXY_PORT = 18082;
+
+  // Laeuft diese Seite direkt auf dem FreakShow-PC?
+  function isLocalPage() {
+    return /^(127\.0\.0\.1|localhost|\[?::1\]?)$/i.test(String(window.location.hostname || ''));
+  }
 
   function needsProxy(url, host) {
     return /^https:/i.test(String(url || '')) &&
       !/^(127\.0\.0\.1|localhost|\[?::1\]?)$/i.test(String(host || ''));
+  }
+
+  // Bekannte HTTPS-Overlays ueber die lokale Bridge ausliefern. Grund: Eine
+  // HTTPS-Seite darf laut Browser-Regel nur zu localhost eine unverschluesselte
+  // WebSocket-Verbindung oeffnen. Wird die Ausgabe auf einem ZWEITEN PC gezeigt,
+  // scheitert die Verbindung zu Streamer.bot deshalb immer. Ueber den Bridge-Pfad
+  // hat die Seite dieselbe (unverschluesselte) Herkunft wie die Ausgabe und darf
+  // ins LAN verbinden. Die Bridge holt das Original-HTML nur in den Arbeitsspeicher.
+  function bridgeRelayUrl(url) {
+    var parts = parseUrl(url);
+    var match = String(parts.base || '').match(/^https:\/\/([^\/?#]+)(\/[^?#]*)?$/i);
+    if (!match) return '';
+    var host = String(match[1] || '').split('@').pop().split(':')[0].toLowerCase().replace(/^www\./, '');
+    var path = String(match[2] || '/').toLowerCase();
+    var kind = '';
+    if (host === 'vortisrd.github.io' && path.indexOf('/chatrd/') === 0) kind = 'chatrd';
+    else if (host === 'mustachedmaniac.com' && path.indexOf('/widgets/viewer_queue/') === 0) kind = 'mustached-viewer-queue';
+    else if (host === 'tawmae.xyz' && path.indexOf('/overlays/') === 0) {
+      if (path.indexOf('/overlays/giphy-and-sb') === 0) kind = 'tawmae-giphy';
+      else if (path.indexOf('/overlays/better-shoutouts') === 0) kind = 'tawmae-better-shoutouts';
+      else if (path.indexOf('/overlays/dynamic-timers-v2') === 0) kind = 'tawmae-dynamic-timers-v2';
+      else if (path.indexOf('/overlays/spotify-and-sb') === 0) kind = 'tawmae-spotify';
+      else if (path.indexOf('/overlays/giveaway-overlay') === 0) kind = 'tawmae-giveaway';
+    }
+    if (!kind) return '';
+    return window.location.origin + '/external-preview/' + kind +
+      (parts.query ? '?' + parts.query : '') + parts.hash;
   }
 
   // Alle bereits in der URL vorhandenen Adress-/Port-Parameter auf den Proxy
@@ -263,6 +312,14 @@
     var url = link.url;
     var profile = link.profile || 'auto';
 
+    // Twitch-Alertbox: DIREKT von Twitch laden (wie eine OBS-Browserquelle), damit
+    // Herkunft, Sitzung und der Zugangs-Token im Link-Hash zusammenpassen. Der
+    // Riegel "X-Frame-Options: SAMEORIGIN" wird dafuer im Overlay-Fenster gezielt
+    // fuer diesen einen Host entfernt (Host.cs: EnableTwitchWidgetEmbedding).
+    // Ein Umweg ueber die lokale Bridge funktioniert hier NICHT: die Twitch-App
+    // laedt dann unter fremder Herkunft und rendert nichts.
+    if (isTwitchAlertboxUrl(url)) return url;
+
     // Sicherheitsnetz: Cloud-Overlays NIE eigene Adresse/Port anhaengen und
     // evtl. schon eingebackene wieder ENTFERNEN, egal welches Profil gespeichert ist.
     if (isCloudHostedOverlay(url)) return stripConnectionParams(url);
@@ -289,6 +346,14 @@
 
     // Bei Proxy zusaetzlich alle schon eingebackenen Verbindungs-Parameter umbiegen.
     if (proxied) out = rewriteConnectionParamsToProxy(out);
+
+    // Ausgabe laeuft NICHT auf dem FreakShow-PC (z. B. OBS im Netzwerk): bekannte
+    // HTTPS-Overlays ueber die Bridge ausliefern, sonst blockiert der Browser ihre
+    // WebSocket-Verbindung zu Streamer.bot (Mixed Content).
+    if (!isLocalPage() && /^https:/i.test(String(out || ''))) {
+      var relayed = bridgeRelayUrl(out);
+      if (relayed) return relayed;
+    }
     return out;
   }
 
@@ -706,10 +771,21 @@
     return parts.join('\n');
   }
 
+  // In der Ausgabe fuer OBS (/freakshow) werden Web-Overlays BEWUSST nicht
+  // mitgeschickt: fremde Seiten wie die Twitch-Alertbox verbieten die Einbettung
+  // (X-Frame-Options), und andere brauchen dort eine Verbindung, die der Browser
+  // je nach Aufbau blockiert. Solche Overlays gehoeren in OBS als EIGENE
+  // Browserquelle - dort laufen sie zuverlaessig. Videos, Bilder, Notizen und
+  // der Rote Teppich werden weiterhin vollstaendig uebertragen.
+  var isOutputViewer = (function () {
+    try { return /[?&]outputViewer=1(?:&|$)/.test(String(window.location.search || '')); }
+    catch (err) { return false; }
+  })();
+
   function render(force) {
     var configured = getLinks();
     lastConfiguredLinks = configured.slice();
-    var links = visibleLinks(configured);
+    var links = isOutputViewer ? [] : visibleLinks(configured);
     reportRuntimeState(configured, links);
     var signature = signatureFor(links);
     if (!force && signature === lastSignature) return;

@@ -1,4 +1,6 @@
 using System;
+using System.Collections;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
@@ -9,6 +11,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
+using System.Web.Script.Serialization;
 using System.Windows.Forms;
 using System.Management.Automation;
 using Microsoft.Web.WebView2.Core;
@@ -392,6 +395,7 @@ internal sealed class OverlayForm : Form
                 HostLog.Write("WebView2 process failed; reloading overlay.");
                 try { web.Reload(); } catch { }
             };
+            await EnableTwitchWidgetEmbedding();
             await WaitForBridge();
             await WaitForStreamerBotEndpoint();
             web.Source = new Uri("http://127.0.0.1:18081/content/index.html");
@@ -414,6 +418,213 @@ internal sealed class OverlayForm : Form
             MessageBox.Show("FreakShow konnte WebView2 nicht starten.\n\n" + ex.Message, "FreakShow", MessageBoxButtons.OK, MessageBoxIcon.Error);
             Close();
         }
+    }
+
+    // ===== Twitch-Widgets (Alert Box) im Overlay einbettbar machen =====
+    // Twitch liefert dashboard.twitch.tv mit "X-Frame-Options: SAMEORIGIN" aus.
+    // Das verbietet die Anzeige in einem iframe - in OBS faellt das nicht auf, weil
+    // dort jede Browserquelle eine eigene Top-Level-Seite ist. Hier wird deshalb
+    // NUR fuer diesen einen Host der Frame-Riegel aus der Antwort entfernt; die
+    // Seite selbst laedt weiterhin direkt von Twitch (eigene Herkunft, eigener
+    // Zugangs-Token im Link) und verhaelt sich damit exakt wie in OBS.
+    private bool twitchFrameHeaderRemoved;
+    private int twitchDiagnosticsLogged;
+
+    private async System.Threading.Tasks.Task EnableTwitchWidgetEmbedding()
+    {
+        try
+        {
+            web.CoreWebView2.GetDevToolsProtocolEventReceiver("Fetch.requestPaused").DevToolsProtocolEventReceived += OnTwitchResponsePaused;
+            await web.CoreWebView2.CallDevToolsProtocolMethodAsync(
+                "Fetch.enable",
+                "{\"patterns\":[{\"urlPattern\":\"https://dashboard.twitch.tv/*\",\"requestStage\":\"Response\"}]}");
+            HostLog.Write("Twitch widget embedding enabled (frame headers relaxed for dashboard.twitch.tv).");
+        }
+        catch (Exception ex)
+        {
+            HostLog.Write("Twitch widget embedding could not be enabled: " + ex.Message);
+        }
+    }
+
+    private async void OnTwitchResponsePaused(object sender, CoreWebView2DevToolsProtocolEventReceivedEventArgs e)
+    {
+        string requestId = null;
+        bool needsPlainContinue = false;
+        try
+        {
+            JavaScriptSerializer serializer = new JavaScriptSerializer();
+            Dictionary<string, object> data = serializer.Deserialize<Dictionary<string, object>>(e.ParameterObjectAsJson);
+            object idValue;
+            if (data == null || !data.TryGetValue("requestId", out idValue)) return;
+            requestId = Convert.ToString(idValue);
+
+            object statusValue;
+            int statusCode = 0;
+            if (data.TryGetValue("responseStatusCode", out statusValue) && statusValue != null)
+            {
+                Int32.TryParse(Convert.ToString(statusValue), out statusCode);
+            }
+            // NUR die HTML-Seite selbst anfassen. Wuerde man auch die internen
+            // API-Antworten (JSON) neu zusammensetzen, verloeren sie Header und die
+            // Alertbox bliebe leer. Alles andere laeuft unveraendert weiter.
+            bool isHtml = false;
+            object headersProbe;
+            if (data.TryGetValue("responseHeaders", out headersProbe))
+            {
+                IEnumerable probeList = headersProbe as IEnumerable;
+                if (probeList != null)
+                {
+                    foreach (object entry in probeList)
+                    {
+                        Dictionary<string, object> header = entry as Dictionary<string, object>;
+                        if (header == null) continue;
+                        object n, v;
+                        header.TryGetValue("name", out n);
+                        header.TryGetValue("value", out v);
+                        if (String.Equals(Convert.ToString(n), "content-type", StringComparison.OrdinalIgnoreCase) &&
+                            Convert.ToString(v).IndexOf("text/html", StringComparison.OrdinalIgnoreCase) >= 0)
+                        {
+                            isHtml = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            // Diagnose: die ersten Antworten dieses Hosts protokollieren, damit im
+            // Log nachvollziehbar ist, was abgefangen wird (max. 5 Zeilen).
+            if (twitchDiagnosticsLogged < 5)
+            {
+                twitchDiagnosticsLogged++;
+                object urlValue, typeProbe;
+                Dictionary<string, object> requestObject = null;
+                if (data.TryGetValue("request", out urlValue)) requestObject = urlValue as Dictionary<string, object>;
+                object innerUrl = null;
+                if (requestObject != null) requestObject.TryGetValue("url", out innerUrl);
+                data.TryGetValue("resourceType", out typeProbe);
+                string shownUrl = Convert.ToString(innerUrl);
+                if (shownUrl.Length > 90) shownUrl = shownUrl.Substring(0, 90) + "…";
+                HostLog.Write("Twitch response seen: type=" + Convert.ToString(typeProbe) + " status=" + statusCode + " html=" + isHtml + " url=" + shownUrl);
+            }
+            // Ohne gueltigen Status (reine Anfrage-Phase, Weiterleitung, Fehlschlag)
+            // laesst sich keine Antwort ersetzen -> unveraendert weiterreichen.
+            if (!isHtml || statusCode < 100 || statusCode > 599)
+            {
+                needsPlainContinue = true;
+            }
+            else
+            {
+
+            List<object> keptHeaders = new List<object>();
+            object headersValue;
+            if (data.TryGetValue("responseHeaders", out headersValue))
+            {
+                IEnumerable headers = headersValue as IEnumerable;
+                if (headers != null)
+                {
+                    foreach (object entry in headers)
+                    {
+                        Dictionary<string, object> header = entry as Dictionary<string, object>;
+                        if (header == null) continue;
+                        object nameValue, valueValue;
+                        header.TryGetValue("name", out nameValue);
+                        header.TryGetValue("value", out valueValue);
+                        string name = Convert.ToString(nameValue);
+                        string value = Convert.ToString(valueValue);
+                        if (String.IsNullOrEmpty(name)) continue;
+                        if (name.Equals("x-frame-options", StringComparison.OrdinalIgnoreCase))
+                        {
+                            // Einmalig bestaetigen, dass der Riegel wirklich faellt.
+                            if (!twitchFrameHeaderRemoved)
+                            {
+                                twitchFrameHeaderRemoved = true;
+                                HostLog.Write("Twitch frame lock removed (X-Frame-Options stripped) - widget can now render in the overlay.");
+                            }
+                            continue;
+                        }
+                        if (name.Equals("content-security-policy", StringComparison.OrdinalIgnoreCase))
+                        {
+                            value = StripFrameAncestors(value);
+                            if (String.IsNullOrWhiteSpace(value)) continue;
+                        }
+                        // Die Antwort wird gleich mit dem bereits entpackten Text neu
+                        // ausgeliefert. Packungs- und Laengenangaben der Originalantwort
+                        // wuerden dann nicht mehr passen und die Seite abbrechen lassen.
+                        if (name.Equals("content-encoding", StringComparison.OrdinalIgnoreCase)) continue;
+                        if (name.Equals("content-length", StringComparison.OrdinalIgnoreCase)) continue;
+                        // Mehrzeilige Werte (z. B. mehrere Set-Cookie) wuerden das
+                        // Antwort-Format sprengen -> in eine Zeile zusammenfuehren.
+                        value = (value ?? "").Replace("\r", "").Replace("\n", " ");
+                        keptHeaders.Add(new Dictionary<string, object> { { "name", name }, { "value", value } });
+                    }
+                }
+            }
+
+                // Den fertigen Seitentext holen und die Antwort komplett selbst
+                // ausliefern. Nur Header zu tauschen reicht nicht: der Original-Body
+                // ist gepackt, wodurch die Anfrage nach dem Umschreiben abbricht.
+                string idOnly = serializer.Serialize(new Dictionary<string, object> { { "requestId", requestId } });
+                string bodyResult = await web.CoreWebView2.CallDevToolsProtocolMethodAsync("Fetch.getResponseBody", idOnly);
+                Dictionary<string, object> bodyData = serializer.Deserialize<Dictionary<string, object>>(bodyResult);
+                object rawBody, encodedFlag;
+                bodyData.TryGetValue("body", out rawBody);
+                bodyData.TryGetValue("base64Encoded", out encodedFlag);
+                string bodyText = Convert.ToString(rawBody);
+                bool alreadyBase64 = (encodedFlag != null) && Convert.ToBoolean(encodedFlag);
+                if (!alreadyBase64) bodyText = Convert.ToBase64String(Encoding.UTF8.GetBytes(bodyText));
+
+                Dictionary<string, object> payload = new Dictionary<string, object>();
+                payload["requestId"] = requestId;
+                payload["responseCode"] = statusCode;
+                payload["responseHeaders"] = keptHeaders;
+                payload["body"] = bodyText;
+                await web.CoreWebView2.CallDevToolsProtocolMethodAsync("Fetch.fulfillRequest", serializer.Serialize(payload));
+            }
+        }
+        catch (Exception ex)
+        {
+            HostLog.Write("Twitch response could not be adjusted: " + ex.Message);
+            // Die Antwort MUSS weiterlaufen, sonst haengt die eingebettete Seite.
+            // (await ist in einer catch-Klausel nicht erlaubt -> Merker setzen.)
+            needsPlainContinue = !String.IsNullOrEmpty(requestId);
+        }
+
+        if (needsPlainContinue)
+        {
+            // In der Antwort-Phase reicht continueResponse OHNE Header die Antwort
+            // unveraendert weiter; continueRequest ist hier der Notnagel.
+            string idJson = "{\"requestId\":\"" + requestId.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"}";
+            // Kein await in einer catch-Klausel (alter C#-Compiler) -> Merker.
+            bool continueResponseFailed = false;
+            try
+            {
+                await web.CoreWebView2.CallDevToolsProtocolMethodAsync("Fetch.continueResponse", idJson);
+            }
+            catch
+            {
+                continueResponseFailed = true;
+            }
+            if (continueResponseFailed)
+            {
+                try { await web.CoreWebView2.CallDevToolsProtocolMethodAsync("Fetch.continueRequest", idJson); }
+                catch { }
+            }
+        }
+    }
+
+    // Nur die Frame-Sperre aus einer CSP entfernen; alle anderen Schutzregeln bleiben.
+    private static string StripFrameAncestors(string policy)
+    {
+        if (String.IsNullOrEmpty(policy)) return policy;
+        string[] directives = policy.Split(';');
+        List<string> kept = new List<string>();
+        for (int i = 0; i < directives.Length; i++)
+        {
+            string directive = directives[i].Trim();
+            if (directive.Length == 0) continue;
+            if (directive.StartsWith("frame-ancestors", StringComparison.OrdinalIgnoreCase)) continue;
+            kept.Add(directive);
+        }
+        return String.Join("; ", kept.ToArray());
     }
 
     private static async System.Threading.Tasks.Task WaitForBridge()

@@ -7257,6 +7257,7 @@
             <button type="button" class="settings-nav-item active" data-settings-panel="colors" data-i18n="settings.colors">Darstellung</button>
             <button type="button" class="settings-nav-item" data-settings-panel="pause" data-i18n="settings.pause">Pause</button>
             <button type="button" class="settings-nav-item" data-settings-panel="layers">Ebenen</button>
+            <button type="button" class="settings-nav-item" data-settings-panel="output" data-i18n="settings.outputNav">FreakShow</button>
             <button type="button" class="settings-nav-item" data-settings-panel="connections" data-i18n="settings.connections">Verbindungen</button>
             <button type="button" class="settings-nav-item" data-settings-panel="extras">Extras</button>
             <button type="button" class="settings-nav-item" data-settings-panel="defaults" data-i18n="settings.defaultsNav">Standard</button>
@@ -7356,6 +7357,19 @@
               <p class="settings-hint">Reihenfolge: <strong>oben in der Liste = oben im Bild</strong>. Ziehen zum Sortieren.</p>
               <div id="layer-priority-list" class="layer-priority-list"></div>
               <p class="settings-hint">Wirkt im echten Overlay (nach ein paar Sekunden).</p>
+            </div>
+
+            <div class="settings-card" data-settings-section="output" hidden>
+              <h3 data-i18n="settings.outputTitle">FreakShow Browser-Seite</h3>
+              <p class="settings-hint" data-i18n="settings.outputHint">Zeigt Bild und Ton der eingeblendeten Inhalte – ohne Monitorrahmen, Raster oder Bedienoberfläche. Geeignet für OBS und einen zweiten PC.</p>
+              <div class="settings-row" style="flex-wrap:wrap">
+                <input id="settings-output-url" type="text" readonly aria-label="FreakShow-URL" style="flex:1 1 280px; min-width:0">
+                <button type="button" id="settings-output-copy" class="btn-primary" data-i18n="settings.outputCopy">Kopieren</button>
+                <button type="button" id="settings-output-open" class="btn-success" data-i18n="settings.outputOpen">Öffnen</button>
+                <button type="button" id="settings-output-sound-test" class="btn-muted" data-i18n="settings.outputSoundTest">Ton testen</button>
+              </div>
+              <p class="settings-hint" data-i18n="settings.outputScopeHint">Übertragen werden: Videos, Bilder, Notizen und der Rote Teppich. NICHT enthalten sind Web-Overlays (HTML-Links) – fremde Seiten wie die Twitch-Alertbox verbieten die Einbettung. Diese in OBS als eigene Browserquelle hinzufügen.</p>
+              <p id="settings-output-status" class="settings-hint" data-i18n="settings.outputReady">FreakShow zuerst öffnen, dann den Ton testen. Falls Chrome den Ton blockiert, einmal in die geöffnete FreakShow-Seite klicken.</p>
             </div>
 
             <div class="settings-card" data-settings-section="pause" hidden>
@@ -12399,6 +12413,10 @@
         var previewConfig = readConfigFields();
         var previewHost = String(parts.host || '').toLowerCase().replace(/^www\./, '');
         var previewPath = String(parts.path || '').toLowerCase();
+        if (previewHost === 'dashboard.twitch.tv' && previewPath.indexOf('/widgets/alertbox') === 0) {
+          return location.origin + '/external-preview/twitch-alertbox' +
+            (parts.query ? '?' + parts.query : '') + parts.hash;
+        }
         if (previewHost === 'tawmae.xyz' && previewPath.indexOf('/overlays/') === 0) {
           var tawmaeKind = '';
           if (previewPath.indexOf('/overlays/giphy-and-sb') === 0) tawmaeKind = 'tawmae-giphy';
@@ -13803,6 +13821,9 @@
 
       function linkKindLabel(url) {
         var parts = parseUrlParts(url);
+        if (parts.host === 'dashboard.twitch.tv' && parts.path.indexOf('/widgets/alertbox') === 0) {
+          return 'Twitch Alert Box';
+        }
         if (parts.host === 'tawmae.xyz' && parts.path.indexOf('/overlays/giphy-and-sb') === 0) {
           return 'GIPHY & SB Overlay';
         }
@@ -13832,6 +13853,9 @@
       function linkPurposeLabel(url) {
         var parts = parseUrlParts(url);
         var lower = String(url || '').toLowerCase();
+        if (parts.host === 'dashboard.twitch.tv' && parts.path.indexOf('/widgets/alertbox') === 0) {
+          return 'Twitch-Alerts im Overlay anzeigen';
+        }
         if (parts.host === 'tawmae.xyz' && parts.path.indexOf('/overlays/giphy-and-sb') === 0) {
           return 'GIPHY/Bilder aus Streamer.bot im Overlay anzeigen';
         }
@@ -16315,6 +16339,7 @@
           'settings.autoNav': 'Automatik', 'settings.autoOrganize': 'Ordner-Automatik', 'settings.autoOrganizeHint': 'Videos automatisch in ihre Gruppen-Ordner einsortieren, sobald sich eine Gruppe ändert.', 'settings.autoOrganizeUse': 'Automatisch einsortieren', 'settings.autostart': 'Autostart', 'settings.autostartHint': 'FreakShow automatisch mit Windows starten (Overlay + Bridge beim Anmelden).', 'settings.autostartUse': 'Mit Windows automatisch starten',
           'settings.pause': 'Pause', 'settings.pauseHint': 'Schaltet alle Video-Overlays vorübergehend aus – Streamer.bot löst dann keine Videos mehr aus.', 'settings.pauseUse': 'Videos im Overlay pausieren', 'settings.pauseStateOn': 'Aktuell: Videos pausiert', 'settings.pauseStateOff': 'Aktuell: Videos laufen',
           'settings.hotkeyHint': 'Blendet das Overlay per Tastendruck aus/ein – nutzt die Funktion „Overlay-Ausgabe" (oben rechts). Wirkt systemweit – auch wenn ein Spiel im Vordergrund ist. Knopf klicken, Taste drücken (z. B. F8 oder F12). Escape bricht ab.',
+          'settings.outputNav': 'FreakShow', 'settings.outputTitle': 'FreakShow Browser-Seite', 'settings.outputHint': 'Zeigt Bild und Ton der eingeblendeten Inhalte – ohne Monitorrahmen, Raster oder Bedienoberfläche. Geeignet für OBS und einen zweiten PC.', 'settings.outputCopy': 'Kopieren', 'settings.outputOpen': 'Öffnen', 'settings.outputSoundTest': 'Ton testen', 'settings.outputReady': 'FreakShow zuerst öffnen, dann den Ton testen. Falls Chrome den Ton blockiert, einmal in die geöffnete FreakShow-Seite klicken.',
           'linkAdd.hint': 'Name + Link eintragen (z. B. eine Streamlabs- oder GIPHY-URL).',
           'conn.hostTitle': 'Overlay-PC', 'conn.hostSub': '(↔ Streamer.bot – echter Status)', 'conn.hostLoading': 'Status wird geladen …',
           'conn.password': 'Passwort', 'conn.passwordHint': 'Für YouTube/Kick und Twitch ohne direkte Anmeldung: In Streamer.bot die WebSocket-Authentifizierung aktivieren und hier dasselbe Passwort eintragen.',
@@ -16422,6 +16447,7 @@
           'settings.autoNav': 'Automation', 'settings.autoOrganize': 'Auto folder sort', 'settings.autoOrganizeHint': 'Automatically move videos into their group folders whenever a group changes.', 'settings.autoOrganizeUse': 'Sort automatically', 'settings.autostart': 'Autostart', 'settings.autostartHint': 'Start FreakShow automatically with Windows (overlay + bridge at sign-in).', 'settings.autostartUse': 'Start automatically with Windows',
           'settings.pause': 'Pause', 'settings.pauseHint': 'Temporarily turns off all video overlays – Streamer.bot triggers won’t play any videos.', 'settings.pauseUse': 'Pause videos in the overlay', 'settings.pauseStateOn': 'Currently: videos paused', 'settings.pauseStateOff': 'Currently: videos running',
           'settings.hotkeyHint': 'Hides/shows the overlay with a key press – uses the "Overlay output" switch (top right). Works system-wide – even while a game is in the foreground. Click the button, press a key (e.g. F8 or F12). Escape cancels.',
+          'settings.outputNav': 'FreakShow', 'settings.outputTitle': 'FreakShow browser page', 'settings.outputHint': 'Shows the picture and sound of visible content without the monitor frame, grid, or controls. Suitable for OBS and a second PC.', 'settings.outputCopy': 'Copy', 'settings.outputOpen': 'Open', 'settings.outputSoundTest': 'Test sound', 'settings.outputReady': 'Open FreakShow first, then test the sound. If Chrome blocks audio, click the open FreakShow page once.', 'settings.outputScopeHint': 'Transferred: videos, images, notes and the Red Carpet. Web overlays (HTML links) are NOT included – external pages such as the Twitch alert box forbid embedding. Add those in OBS as their own browser source.',
           'linkAdd.hint': 'Enter a name + link (e.g. a Streamlabs or GIPHY URL).',
           'conn.hostTitle': 'Overlay PC', 'conn.hostSub': '(↔ Streamer.bot – actual status)', 'conn.hostLoading': 'Loading status …',
           'conn.password': 'Password', 'conn.passwordHint': 'For YouTube/Kick and Twitch without direct sign-in: enable WebSocket authentication in Streamer.bot and enter the same password here.',
@@ -16529,6 +16555,7 @@
           'settings.autoNav': 'Automático', 'settings.autoOrganize': 'Orden automático de carpetas', 'settings.autoOrganizeHint': 'Mover los vídeos automáticamente a sus carpetas de grupo cuando cambie un grupo.', 'settings.autoOrganizeUse': 'Ordenar automáticamente', 'settings.autostart': 'Inicio automático', 'settings.autostartHint': 'Iniciar FreakShow automáticamente con Windows (overlay + bridge al iniciar sesión).', 'settings.autostartUse': 'Iniciar automáticamente con Windows',
           'settings.pause': 'Pausa', 'settings.pauseHint': 'Desactiva temporalmente todos los overlays de vídeo – los disparadores de Streamer.bot no reproducirán vídeos.', 'settings.pauseUse': 'Pausar vídeos en el overlay', 'settings.pauseStateOn': 'Actualmente: vídeos en pausa', 'settings.pauseStateOff': 'Actualmente: vídeos en marcha',
           'settings.hotkeyHint': 'Oculta/muestra el overlay con una tecla – usa la función «Salida del overlay» (arriba a la derecha). Funciona en todo el sistema, incluso con un juego en primer plano. Haz clic en el botón y pulsa una tecla (p. ej. F8 o F12). Escape cancela.',
+          'settings.outputNav': 'FreakShow', 'settings.outputTitle': 'Página FreakShow del navegador', 'settings.outputHint': 'Muestra la imagen y el sonido del contenido visible, sin marco del monitor, cuadrícula ni controles. Adecuada para OBS y un segundo PC.', 'settings.outputCopy': 'Copiar', 'settings.outputOpen': 'Abrir', 'settings.outputSoundTest': 'Probar sonido', 'settings.outputReady': 'Abre FreakShow primero y luego prueba el sonido. Si Chrome bloquea el audio, haz clic una vez en la página FreakShow abierta.', 'settings.outputScopeHint': 'Se transfieren: vídeos, imágenes, notas y la alfombra roja. Los overlays web (enlaces HTML) NO se incluyen: páginas externas como la alerta de Twitch prohíben la inserción. Añádelos en OBS como fuente de navegador propia.',
           'linkAdd.hint': 'Introduce un nombre + enlace (p. ej. una URL de Streamlabs o GIPHY).',
           'conn.hostTitle': 'PC del overlay', 'conn.hostSub': '(↔ Streamer.bot – estado real)', 'conn.hostLoading': 'Cargando estado …',
           'conn.password': 'Contraseña', 'conn.passwordHint': 'Para YouTube/Kick y Twitch sin inicio de sesión directo: activa la autenticación WebSocket en Streamer.bot e introduce aquí la misma contraseña.',
@@ -17340,6 +17367,73 @@
 
       var SETTINGS_PANEL_KEY = 'kappi.ui.settingsPanel';
 
+      function outputSettingsText(de, en, es) {
+        var lang = currentLang();
+        return lang === 'en' ? en : (lang === 'es' ? es : de);
+      }
+
+      function initOutputSettings() {
+        var urlField = byId('settings-output-url');
+        var copyButton = byId('settings-output-copy');
+        var openButton = byId('settings-output-open');
+        var soundTestButton = byId('settings-output-sound-test');
+        var status = byId('settings-output-status');
+        if (!urlField || !copyButton || !openButton || !soundTestButton) return;
+
+        var bridgeOrigin = String(window.BRIDGE_ORIGIN || window.location.origin || '').replace(/\/+$/, '');
+        var outputUrl = bridgeOrigin + '/freakshow';
+        urlField.value = outputUrl;
+
+        copyButton.addEventListener('click', function () {
+          copyText(outputUrl, function (ok) {
+            if (status) {
+              status.textContent = ok
+                ? outputSettingsText(
+                    'Adresse kopiert ✓ – überträgt Videos, Bilder, Notizen und den Roten Teppich. Web-Overlays (HTML-Links) sind NICHT enthalten: die in OBS als eigene Browserquelle einrichten.',
+                    'Address copied ✓ – transfers videos, images, notes and the Red Carpet. Web overlays (HTML links) are NOT included: add those in OBS as their own browser source.',
+                    'Dirección copiada ✓ – transfiere vídeos, imágenes, notas y la alfombra roja. Los overlays web (enlaces HTML) NO se incluyen: añádelos en OBS como fuente de navegador propia.'
+                  )
+                : outputSettingsText('Adresse bitte manuell kopieren.', 'Please copy the address manually.', 'Copia la dirección manualmente.');
+            }
+            window.setTimeout(function () {
+              if (status) {
+                status.textContent = outputSettingsText(
+                  'FreakShow zuerst öffnen, dann den Ton testen. Falls Chrome den Ton blockiert, einmal in die geöffnete FreakShow-Seite klicken.',
+                  'Open FreakShow first, then test the sound. If Chrome blocks audio, click the open FreakShow page once.',
+                  'Abre FreakShow primero y luego prueba el sonido. Si Chrome bloquea el audio, haz clic una vez en la página FreakShow abierta.'
+                );
+              }
+            }, 9000);
+          });
+        });
+
+        openButton.addEventListener('click', function () {
+          try { window.open(outputUrl, '_blank', 'noopener,noreferrer'); } catch (e) {}
+        });
+
+        soundTestButton.addEventListener('click', function () {
+          try {
+            var request = new XMLHttpRequest();
+            request.open('POST', bridgeOrigin + '/output-sound-test', true);
+            request.setRequestHeader('X-Kappi-Token', BRIDGE_CONTROL_TOKEN);
+            request.timeout = 4000;
+            request.onload = function () {
+              if (status) {
+                status.textContent = request.status >= 200 && request.status < 300
+                  ? outputSettingsText('Tonsignal an geöffnete FreakShow-Seiten gesendet ✓', 'Sound signal sent to open FreakShow pages ✓', 'Señal de sonido enviada a las páginas FreakShow abiertas ✓')
+                  : outputSettingsText('Tonsignal konnte nicht gesendet werden.', 'The sound signal could not be sent.', 'No se pudo enviar la señal de sonido.');
+              }
+            };
+            request.onerror = request.ontimeout = function () {
+              if (status) status.textContent = outputSettingsText('Tonsignal konnte nicht gesendet werden.', 'The sound signal could not be sent.', 'No se pudo enviar la señal de sonido.');
+            };
+            request.send('{}');
+          } catch (e) {
+            if (status) status.textContent = outputSettingsText('Tonsignal konnte nicht gesendet werden.', 'The sound signal could not be sent.', 'No se pudo enviar la señal de sonido.');
+          }
+        });
+      }
+
       // ---- Einstellungen-Navigation selbst sortierbar (Reihenfolge im Browser
       //      gespeichert; Ziehen erst nach langem Halten). Oben = am wichtigsten. ----
       var SETTINGS_NAV_ORDER_KEY = 'kappi.ui.settingsNavOrder';
@@ -17502,6 +17596,7 @@
         }
         if (byId('set-language')) byId('set-language').addEventListener('change', function () { onUiSettingChanged(); buildThemeChooser(); if (typeof erUpdateEditorLabels === 'function') erUpdateEditorLabels(); if (typeof erUpdateGreetLabel === 'function') erUpdateGreetLabel(); });
         if (byId('set-reset')) byId('set-reset').addEventListener('click', resetUiSettings);
+        initOutputSettings();
         var nav = byId('settings-nav');
         if (nav) {
           applySettingsNavOrder(nav); // selbst gewählte Reihenfolge wiederherstellen

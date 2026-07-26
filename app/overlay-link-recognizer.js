@@ -46,6 +46,9 @@
     if (hostIs(host, 'streamelements.com') && path.indexOf('/overlay/') === 0) {
       return { id: 'streamelements-overlay', label: 'StreamElements Overlay', profile: 'none', cloud: true };
     }
+    if (hostIs(host, 'dashboard.twitch.tv') && path.indexOf('/widgets/alertbox') === 0) {
+      return { id: 'twitch-alertbox', label: 'Twitch Alert Box', profile: 'none', cloud: true };
+    }
     if (hostIs(host, 'mustachedmaniac.com') && path.indexOf('/widgets/viewer_queue/') === 0) {
       return { id: 'mustached-viewer-queue', label: 'MustachedManiac Viewer Queue', profile: 'address-port' };
     }
@@ -166,6 +169,7 @@
       'https://mustachedmaniac.com/widgets/Viewer_Queue/',
       'https://streamlabs.com/widgets/event-list/',
       'https://streamelements.com/overlay/',
+      'https://dashboard.twitch.tv/widgets/alertbox',
       'https://tawmae.xyz/overlays/better-shoutouts',
       'https://tawmae.xyz/overlays/dynamic-timers-v2',
       'https://tawmae.xyz/overlays/giphy-and-sb',

@@ -11,6 +11,10 @@
 (function () {
   'use strict';
 
+  // Die reine Browser-/OBS-Ausgabeseite ist eine absichtliche zweite Anzeige.
+  // Sie darf deshalb weder das echte Host-Overlay verdrängen noch selbst zur
+  // maßgeblichen Instanz werden.
+  if (/[?&]outputViewer=1(?:&|$)/.test(window.location.search || '')) return;
   if (/[?&]instanceGuard=0/.test(window.location.search || '')) return;
   if (window.__KAPPI_INSTANCE_GUARD_ACTIVE__) return;
   window.__KAPPI_INSTANCE_GUARD_ACTIVE__ = true;
