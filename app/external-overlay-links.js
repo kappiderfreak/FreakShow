@@ -29,6 +29,9 @@
   var lastManualVersionById = {};
   var triggerBound = false;
   var runtimeReportInFlight = false;
+  // Rueckmeldung der Overlay-Dokumente zum Schalter "Hintergrund entfernen".
+  var backgroundFrames = [];
+  var backgroundAckById = {};
   var lastRuntimeReportSignature = '';
   var lastRuntimeReportAt = 0;
   var positionThemeAccent = '#4f7dd6';
@@ -80,6 +83,7 @@
       trigger: String(link.trigger || '').replace(/^\s+|\s+$/g, ''),
       triggerOn: link.triggerOn === true,
       manualVersion: Math.max(0, toInt(link.manualVersion, 0)),
+      transparentBg: link.transparentBg === true,
       area: normalizeArea(link.area)
     };
   }
@@ -514,7 +518,8 @@
       items.push({
         id: id,
         visible: visibleById[id] === true,
-        triggered: Object.prototype.hasOwnProperty.call(trigState, id)
+        triggered: Object.prototype.hasOwnProperty.call(trigState, id),
+        backgroundRemoved: backgroundAckById[id] === true
       });
     }
     var signature = JSON.stringify(items);
@@ -755,6 +760,28 @@
     frame.style.padding = '0';
     frame.style.background = 'transparent';
     frame.style.pointerEvents = 'none';
+
+    // Schalter "Hintergrund entfernen": Fremde Overlay-Seiten liegen in einer
+    // anderen Herkunft, ihr Aussehen laesst sich von hier nicht anfassen. Das
+    // Ausblenden erledigt darum ein Skript IM Overlay-Dokument (Host.cs); hier wird
+    // nur der Wunsch hineingereicht. Mehrfach, weil Single-Page-Overlays ihre
+    // Oberflaeche erst nach dem Laden aufbauen.
+    var wantsTransparent = link.transparentBg === true;
+    backgroundFrames.push({ id: String(link.id || link.url || ''), frame: frame });
+    function postBackgroundWish() {
+      try {
+        if (frame.contentWindow) {
+          frame.contentWindow.postMessage({ freakshowOverlay: 'background', transparent: wantsTransparent }, '*');
+        }
+      } catch (err) {}
+    }
+    frame.addEventListener('load', function () {
+      postBackgroundWish();
+      window.setTimeout(postBackgroundWish, 400);
+      window.setTimeout(postBackgroundWish, 1500);
+      window.setTimeout(postBackgroundWish, 4000);
+    });
+
     return frame;
   }
 
@@ -766,7 +793,9 @@
       '|' + (window.innerWidth || sourceWidth) + 'x' + (window.innerHeight || sourceHeight)
     ];
     for (var i = 0; i < links.length; i++) {
-      parts.push(links[i].id + '|' + links[i].name + '|' + applyConnection(links[i]) + '|' + JSON.stringify(normalizeArea(links[i].area)));
+      parts.push(links[i].id + '|' + links[i].name + '|' + applyConnection(links[i]) +
+        '|bg' + (links[i].transparentBg === true ? '1' : '0') +
+        '|' + JSON.stringify(normalizeArea(links[i].area)));
     }
     return parts.join('\n');
   }
@@ -793,6 +822,7 @@
 
     var layer = ensureLayer();
     layer.innerHTML = '';
+    backgroundFrames = [];
 
     for (var i = 0; i < links.length; i++) {
       layer.appendChild(makeFrame(links[i]));
@@ -886,6 +916,22 @@
     pollExternalLinks();
     startNetProbe();
   }
+
+  // Rueckmeldung aus einem Overlay-Dokument: Der Schalter "Hintergrund entfernen"
+  // hat dieses Overlay erreicht. Die Zuordnung laeuft ueber das sendende Fenster,
+  // da fremde Overlays sich sonst nicht auseinanderhalten lassen.
+  window.addEventListener('message', function (event) {
+    var data = event && event.data;
+    if (!data || typeof data !== 'object' || data.freakshowOverlay !== 'background-ack') return;
+    for (var i = 0; i < backgroundFrames.length; i++) {
+      try {
+        if (backgroundFrames[i].frame.contentWindow === event.source) {
+          backgroundAckById[backgroundFrames[i].id] = data.applied === true;
+          break;
+        }
+      } catch (err) {}
+    }
+  }, false);
 
   window.addEventListener('storage', function (event) {
     if (!event || event.key === STORAGE_KEY || event.key === LEGACY_STORAGE_KEY) render(true);

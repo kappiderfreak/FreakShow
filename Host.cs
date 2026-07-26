@@ -396,6 +396,7 @@ internal sealed class OverlayForm : Form
                 try { web.Reload(); } catch { }
             };
             await EnableTwitchWidgetEmbedding();
+            await EnableOverlayBackgroundRemoval();
             await WaitForBridge();
             await WaitForStreamerBotEndpoint();
             web.Source = new Uri("http://127.0.0.1:18081/content/index.html");
@@ -417,6 +418,90 @@ internal sealed class OverlayForm : Form
             HostLog.Write("WebView2 initialization failed: " + ex);
             MessageBox.Show("FreakShow konnte WebView2 nicht starten.\n\n" + ex.Message, "FreakShow", MessageBoxButtons.OK, MessageBoxIcon.Error);
             Close();
+        }
+    }
+
+    // ===== Schalter "Hintergrund entfernen" fuer Web-Overlays =====
+    // Ein Chat-Overlay wie chat.streamer.bot zeichnet seine Nachrichten auf
+    // eingefaerbte Kacheln. Von aussen ist da nicht heranzukommen: der iframe hat
+    // eine fremde Herkunft, und ein Umweg ueber die Bridge scheidet aus, weil solche
+    // Seiten Single-Page-Apps mit eigenem Routing sind - unter fremdem Pfad zeigen
+    // sie nur "Page not found". Deshalb bekommt JEDES Dokument im Overlay-Fenster,
+    // auch ein fremdes iframe, dieses winzige Skript mit. Es wartet auf eine
+    // Nachricht der Overlay-Seite und blendet den Hintergrund genau dort aus, wo es
+    // erlaubt ist: im Dokument selbst. Ohne diese Nachricht tut es nichts.
+    private const string OverlayBackgroundScript = @"
+(function () {
+  if (window.__freakshowBackgroundBridge) return;
+  window.__freakshowBackgroundBridge = true;
+  var STYLE_ID = 'freakshow-hide-background';
+  // Nur Flaechen entfernen, nicht den Inhalt: Text, Symbole (svg) und Emotes (img)
+  // bleiben unberuehrt, weil hier ausschliesslich Fuellfarbe und Schatten fallen.
+  // Die beiden :not(...) tragen nichts zur Auswahl bei - sie heben nur die
+  // Prioritaet der Regel ueber die der Overlay-Seite, denn Baukaesten wie Tailwind
+  // setzen Hintergruende teilweise selbst schon mit zwei Klassenstufen.
+  // ::before/::after muessen mit, weil Kacheln dort haeufig gezeichnet werden.
+  var KEEP = ':not(.freakshow-keep-bg):not(.freakshow-keep-shadow)';
+  var SEL = 'html body *' + KEEP;
+  var CSS = 'html,body{background:transparent !important;background-image:none !important;}'
+    + SEL + '{background-color:transparent !important;box-shadow:none !important;}'
+    + SEL + '::before,' + SEL + '::after{background-color:transparent !important;box-shadow:none !important;}';
+  var wanted = null;
+
+  function apply(on) {
+    try {
+      var root = document.documentElement;
+      if (!root) return;
+      var style = document.getElementById(STYLE_ID);
+      if (!on) {
+        if (style && style.parentNode) style.parentNode.removeChild(style);
+        return;
+      }
+      if (style) return;
+      style = document.createElement('style');
+      style.id = STYLE_ID;
+      style.appendChild(document.createTextNode(CSS));
+      (document.head || root).appendChild(style);
+    } catch (e) {}
+  }
+
+  // Kurze Rueckmeldung an die Overlay-Seite, damit dort sichtbar ist, ob der
+  // Schalter dieses Overlay wirklich erreicht hat.
+  function report(on) {
+    try {
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage({ freakshowOverlay: 'background-ack', applied: on === true }, '*');
+      }
+    } catch (e) {}
+  }
+
+  window.addEventListener('message', function (event) {
+    var data = event && event.data;
+    if (!data || typeof data !== 'object' || data.freakshowOverlay !== 'background') return;
+    wanted = data.transparent === true;
+    apply(wanted);
+    report(wanted);
+  }, false);
+
+  // Single-Page-Overlays bauen ihren Kopfbereich teilweise neu auf. Ein leichter
+  // Waechter setzt die Regel dann erneut - er laeuft nur, wenn sie gewuenscht ist.
+  document.addEventListener('DOMContentLoaded', function () { if (wanted !== null) apply(wanted); });
+  window.setInterval(function () {
+    if (wanted === true && !document.getElementById(STYLE_ID)) apply(true);
+  }, 2000);
+})();
+";
+
+    private async System.Threading.Tasks.Task EnableOverlayBackgroundRemoval()
+    {
+        try
+        {
+            await web.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(OverlayBackgroundScript);
+            HostLog.Write("Overlay background switch ready (web overlays can drop their background).");
+        }
+        catch (Exception ex)
+        {
+            HostLog.Write("Overlay background switch could not be enabled: " + ex.Message);
         }
     }
 

@@ -12189,6 +12189,7 @@
               triggerOn: parsed[i].triggerOn === true,
               manualVersion: Math.max(0, parseInt(parsed[i].manualVersion || 0, 10) || 0),
               positionPreview: parsed[i].positionPreview === true,
+              transparentBg: parsed[i].transparentBg === true,
               area: normalizeArea(parsed[i].area),
               visible: false
             });
@@ -12217,6 +12218,7 @@
             triggerOn: linkItems[i].triggerOn === true,
             manualVersion: Math.max(0, parseInt(linkItems[i].manualVersion || 0, 10) || 0),
             positionPreview: linkItems[i].positionPreview === true,
+            transparentBg: linkItems[i].transparentBg === true,
             area: normalizeArea(linkItems[i].area)
           });
         }
@@ -14729,6 +14731,20 @@
           renderLinks();
         });
         settings.appendChild(persistentField);
+        // Nimmt die eingefaerbten Flaechen hinter dem Inhalt weg - z. B. die Kacheln
+        // hinter Chat-Nachrichten. Wirkt im Overlay-Fenster, wo das Overlay laeuft.
+        var transparentField = makeSettingCheckbox('Hintergrund entfernen', item.transparentBg === true, function (event) {
+          item.transparentBg = event.target.checked;
+          item.visible = true;
+          saveStoredLinks();
+          renderLinks();
+          log(event.target.checked
+            ? 'Hintergrund wird bei diesem Overlay ausgeblendet – Text, Symbole und Emotes bleiben.'
+            : 'Hintergrund wird bei diesem Overlay wieder angezeigt.', { name: item.name }, event.target.checked ? 'ok' : 'muted');
+        });
+        transparentField.title = 'Blendet die eingefärbten Flächen hinter dem Inhalt aus, z. B. die Kacheln hinter Chat-Nachrichten. '
+          + 'Wirkt im Overlay-Fenster (nicht in der Vorschau dieser Seite). Text, Symbole und Emotes bleiben sichtbar.';
+        settings.appendChild(transparentField);
         settings.appendChild(triggerField);
         settings.appendChild(makeSettingLabel('Feld', areaSelect));
         settings.appendChild(makeSettingLabel('X', xInput));
@@ -15462,6 +15478,7 @@
             triggerOn: false,
             manualVersion: 0,
             positionPreview: true,
+            transparentBg: false,
             area: area,
             visible: true
           };

@@ -423,6 +423,9 @@ function Write-ExternalLinksJson {
       trigger = $trigger
       triggerOn = $triggerOn
       manualVersion = if ($null -ne $item.manualVersion) { [int64]$item.manualVersion } else { 0 }
+      # Schalter "Hintergrund entfernen": Die Overlay-Seite reicht ihn an das
+      # jeweilige iframe weiter, wo das Ausblenden stattfindet.
+      transparentBg = if ($null -ne $item.transparentBg) { [bool]$item.transparentBg } else { $false }
       area = [ordered]@{
         preset = if ([string]::IsNullOrWhiteSpace([string]$area.preset)) { 'full' } else { [string]$area.preset }
         x = Clamp-Int -Value $area.x -Fallback 0 -Min 0 -Max 20000
@@ -4256,6 +4259,8 @@ while ($true) {
             id = $runtimeId
             visible = [bool]$runtimeItem.visible
             triggered = [bool]$runtimeItem.triggered
+            # Meldung des Overlay-Dokuments: Hintergrund wurde dort wirklich entfernt.
+            backgroundRemoved = [bool]$runtimeItem.backgroundRemoved
           }
         }
         $externalLinksRuntime = [ordered]@{

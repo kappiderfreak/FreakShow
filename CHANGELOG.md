@@ -1,5 +1,28 @@
 # FreakShow – Änderungen
 
+## 1.2.4
+
+### Neu
+
+- Schalter „Hintergrund entfernen“ je Web-Overlay: nimmt die eingefärbten Flächen hinter dem Inhalt weg, zum Beispiel die Kacheln hinter Chat-Nachrichten
+- wirkt bei jedem Web-Overlay, ohne eigenen Code je Anbieter; Text, Symbole und Emotes bleiben sichtbar
+- das Overlay meldet zurück, ob der Schalter dort angekommen ist
+
+## 1.2.3
+
+### Neu und korrigiert
+
+- Ausgabe für OBS (`/freakshow`) lädt sich nach einem Neustart selbst neu, kein Aktualisieren der Browserquelle mehr nötig
+- Ausgabe rendert in der eingestellten Monitorauflösung und passt sich proportional in die Quellgröße ein; Videos, Bilder und Notizen sitzen wie im Editor
+- Web-Overlays sind bewusst nicht in der Ausgabe enthalten, mit Hinweis beim Kopieren des Links
+- bekannte HTTPS-Overlays laufen über die Bridge, wenn die Anzeige nicht auf dem FreakShow-PC läuft
+- WebSocket-Relay im Netzwerk erreichbar, jede Verbindung gegen die IP-Freigabeliste geprüft
+- Twitch-Alertbox lässt sich im Overlay-Fenster einbetten
+- Video-Bubbles: eigener Textbereich mit automatischer Schriftverkleinerung, „Nur Text anzeigen“, Ausblendanimation vor dem Videoende, Rechtsklick-Menü mit Variablen und Emoji
+- Ereignis-Variablen wie `%user%` funktionieren auch in Notizen
+- alle Positionsrahmen mit acht Griffen; Video-Ecken skalieren proportional, mit Alt wird zugeschnitten
+- Chat meldet einen fehlenden Streamer.bot-Import
+
 ## 1.2.2
 
 ### Neu und korrigiert
