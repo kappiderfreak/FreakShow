@@ -1,5 +1,15 @@
 # FreakShow – Änderungen
 
+## 1.2.2
+
+### Neu und korrigiert
+
+- ein gemeinsamer Streamer.bot-Importcode richtet Output Receiver, Resolver und Chat-Sender zusammen ein
+- der Importknopf im leeren Chat ist vollständig anklickbar, mittig ausgerichtet und thematisch umrahmt
+- Plus, Beschriftung und Hilfetext bleiben in allen Sprachen innerhalb des Importknopfs
+- ein vollständig leerer Video-Katalog zeigt erst nach dem Hinzufügen eines Videos den Editor
+- Lautstärke und weitere Videoeinstellungen bleiben bei einem neuen Video am unteren Rand
+
 ## 1.2.1
 
 ### Neu und korrigiert

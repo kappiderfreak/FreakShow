@@ -9,11 +9,11 @@ const read = relative => fs.readFileSync(path.join(root, relative), 'utf8');
 const html = read(path.join('app', 'websocket-diagnose.html'));
 const bridge = read('EmbeddedBridge.ps1');
 
-assert.equal(read('VERSION.txt').trim(), '1.2.1');
-assert.match(read('VersionInfo.cs'), /AssemblyFileVersion\("1\.2\.1\.0"\)/);
-assert.match(read('VersionInfo.cs'), /Current = "1\.2\.1"/);
-assert.match(read('UpdaterVersionInfo.cs'), /AssemblyInformationalVersion\("1\.2\.1"\)/);
-assert.match(read('README-FIRST.txt'), /^FreakShow 1\.2\.1/m);
+assert.equal(read('VERSION.txt').trim(), '1.2.2');
+assert.match(read('VersionInfo.cs'), /AssemblyFileVersion\("1\.2\.2\.0"\)/);
+assert.match(read('VersionInfo.cs'), /Current = "1\.2\.2"/);
+assert.match(read('UpdaterVersionInfo.cs'), /AssemblyInformationalVersion\("1\.2\.2"\)/);
+assert.match(read('README-FIRST.txt'), /^FreakShow 1\.2\.2/m);
 
 assert.match(
   html,

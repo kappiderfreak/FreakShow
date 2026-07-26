@@ -176,6 +176,7 @@ internal sealed class EmbeddedBridge : IDisposable
             ps.AddParameter("OverlayExePath", exePath);
             ps.AddParameter("SettingsPagePath", Path.Combine(appRoot, "websocket-diagnose.html"));
             ps.AddParameter("ChatImportCode", ResourceText("FreakShow.ChatSenderImport"));
+            ps.AddParameter("OutputImportCode", ResourceText("FreakShow.OutputReceiverImport"));
             ps.AddParameter("EmbeddedHost", true);
             ps.Streams.Error.DataAdded += delegate(object sender, DataAddedEventArgs e)
             {
