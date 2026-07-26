@@ -26,10 +26,72 @@ param(
   [string]$OverlayExePath = (Join-Path $PSScriptRoot 'HtmlWindowsOverlayModern.exe'),
   [string]$SettingsPagePath = (Join-Path $PSScriptRoot 'app\websocket-diagnose.html'),
   [string]$ChatImportCode = '',
+  [string]$OutputImportCode = '',
   [switch]$EmbeddedHost
 )
 
 $ErrorActionPreference = 'Stop'
+
+function ConvertFrom-StreamerBotImportCode {
+  param([Parameter(Mandatory = $true)][string]$Code)
+
+  $raw = [Convert]::FromBase64String($Code.Trim())
+  $offset = 0
+  if ($raw.Length -ge 4 -and [Text.Encoding]::ASCII.GetString($raw, 0, 4) -eq 'SBAE') {
+    $offset = 4
+  }
+
+  $payload = New-Object byte[] ($raw.Length - $offset)
+  [Array]::Copy($raw, $offset, $payload, 0, $payload.Length)
+  $input = New-Object IO.MemoryStream (,$payload)
+  try {
+    $gzip = New-Object IO.Compression.GZipStream ($input, [IO.Compression.CompressionMode]::Decompress)
+    try {
+      $reader = New-Object IO.StreamReader ($gzip, [Text.Encoding]::UTF8)
+      try { return ($reader.ReadToEnd() | ConvertFrom-Json) }
+      finally { $reader.Dispose() }
+    } finally { $gzip.Dispose() }
+  } finally { $input.Dispose() }
+}
+
+function ConvertTo-StreamerBotImportCode {
+  param([Parameter(Mandatory = $true)]$Import)
+
+  $json = $Import | ConvertTo-Json -Depth 100 -Compress
+  $jsonBytes = [Text.Encoding]::UTF8.GetBytes($json)
+  $output = New-Object IO.MemoryStream
+  try {
+    $prefix = [Text.Encoding]::ASCII.GetBytes('SBAE')
+    $output.Write($prefix, 0, $prefix.Length)
+    $gzip = New-Object IO.Compression.GZipStream ($output, [IO.Compression.CompressionMode]::Compress, $true)
+    try { $gzip.Write($jsonBytes, 0, $jsonBytes.Length) }
+    finally { $gzip.Dispose() }
+    return [Convert]::ToBase64String($output.ToArray())
+  } finally { $output.Dispose() }
+}
+
+function Merge-StreamerBotImportCodes {
+  param(
+    [Parameter(Mandatory = $true)][string]$ChatCode,
+    [Parameter(Mandatory = $true)][string]$ReceiverCode
+  )
+
+  $chatImport = ConvertFrom-StreamerBotImportCode -Code $ChatCode
+  $receiverImport = ConvertFrom-StreamerBotImportCode -Code $ReceiverCode
+  $actions = @()
+  $seen = @{}
+  foreach ($action in @($receiverImport.data.actions) + @($chatImport.data.actions)) {
+    $name = [string]$action.name
+    if ([string]::IsNullOrWhiteSpace($name) -or $seen.ContainsKey($name)) { continue }
+    $seen[$name] = $true
+    $actions += $action
+  }
+  $chatImport.data.actions = $actions
+  $chatImport.meta.name = 'FreakShow'
+  $chatImport.meta.description = 'FreakShow Output Receiver, Resolver und Chat Sender'
+  return ConvertTo-StreamerBotImportCode -Import $chatImport
+}
+
 if ([string]::IsNullOrWhiteSpace($ChatImportCode)) {
   $chatImportPath = Join-Path $PSScriptRoot 'FreakShow-Chat-Sender.sb'
   try {
@@ -38,6 +100,23 @@ if ([string]::IsNullOrWhiteSpace($ChatImportCode)) {
     }
   } catch {
     $ChatImportCode = ''
+  }
+}
+if ([string]::IsNullOrWhiteSpace($OutputImportCode)) {
+  $outputImportPath = Join-Path $PSScriptRoot 'streamerbot-output-receiver.import.txt'
+  try {
+    if (Test-Path -LiteralPath $outputImportPath -PathType Leaf) {
+      $OutputImportCode = [System.IO.File]::ReadAllText($outputImportPath, [System.Text.Encoding]::UTF8).Trim()
+    }
+  } catch {
+    $OutputImportCode = ''
+  }
+}
+if (-not [string]::IsNullOrWhiteSpace($ChatImportCode) -and -not [string]::IsNullOrWhiteSpace($OutputImportCode)) {
+  try {
+    $ChatImportCode = Merge-StreamerBotImportCodes -ChatCode $ChatImportCode -ReceiverCode $OutputImportCode
+  } catch {
+    Write-Warning ('FreakShow Streamer.bot-Import konnte nicht zusammengeführt werden: ' + $_.Exception.Message)
   }
 }
 # Die eingebettete PowerShell-Runspace laedt System.Security nicht auf jedem Rechner

@@ -14,6 +14,7 @@ $hostArgs = @(
   ('/win32icon:' + (Join-Path $root 'OverlayIcon.ico')),
   ('/resource:' + (Join-Path $root 'EmbeddedBridge.ps1') + ',EmbeddedBridge.ps1'),
   ('/resource:' + (Join-Path $root 'FreakShow-Chat-Sender.sb') + ',FreakShow.ChatSenderImport'),
+  ('/resource:' + (Join-Path $root 'streamerbot-output-receiver.import.txt') + ',FreakShow.OutputReceiverImport'),
   '/reference:System.dll', '/reference:System.Core.dll', '/reference:System.Drawing.dll', '/reference:System.Windows.Forms.dll',
   '/reference:System.Web.Extensions.dll',
   ('/reference:' + $psAssembly),

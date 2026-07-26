@@ -479,7 +479,7 @@
     /* Hover grün (positiv / an / verbunden) – normale Aktions-Knöpfe.
        Strukturelle Elemente (Liste, Tabs, Theme-Kacheln, Nav, Ausricht-Dreiecke)
        sind ausgeschlossen, damit sich diese nicht mit umfärben. */
-    button:not(.video-list-item):not(.workspace-tab):not(.theme-option):not(.settings-nav-item):not(.video-align-btn):not(.link-nav-item):not(.btn-danger):not(.btn-muted):hover,
+    button:not(.video-list-item):not(.workspace-tab):not(.theme-option):not(.settings-nav-item):not(.video-align-btn):not(.link-nav-item):not(.chat-import-copy):not(.btn-danger):not(.btn-muted):hover,
     .button-link:hover {
       background: #1c6b3d;
       border-color: #45b96b;
@@ -498,7 +498,7 @@
        Button-Farbe (--t-btn). Die passt pro Theme: Schwarz-Theme = dunkel,
        Hell/Sepia = hell mit dunklem Text, bunte Themes = farbig.
        Grün/Rot kommt erst beim Hover. */
-    html.ui-themed button:not(.video-list-item):not(.workspace-tab):not(.theme-option):not(.settings-nav-item):not(.video-align-btn):not(.link-nav-item),
+    html.ui-themed button:not(.video-list-item):not(.workspace-tab):not(.theme-option):not(.settings-nav-item):not(.video-align-btn):not(.link-nav-item):not(.chat-import-copy),
     html.ui-themed .button-link {
       background: var(--t-btn);
       border-color: var(--t-btn-border);
@@ -1462,9 +1462,9 @@
     html.ui-themed input, html.ui-themed select, html.ui-themed textarea {
       background: var(--t-input-bg); color: var(--t-input-text); border-color: var(--t-input-border);
     }
-    html.ui-themed button:not(.btn-danger):not(.btn-success):not(.btn-primary):not(.theme-option):not(.settings-nav-item):not(.workspace-tab),
+    html.ui-themed button:not(.btn-danger):not(.btn-success):not(.btn-primary):not(.theme-option):not(.settings-nav-item):not(.workspace-tab):not(.chat-import-copy),
     html.ui-themed .button-link { background: var(--t-btn); border-color: var(--t-btn-border); color: var(--t-btn-text); }
-    html.ui-themed button:not(.btn-danger):not(.btn-success):not(.btn-primary):not(.theme-option):not(.settings-nav-item):not(.workspace-tab):hover,
+    html.ui-themed button:not(.btn-danger):not(.btn-success):not(.btn-primary):not(.theme-option):not(.settings-nav-item):not(.workspace-tab):not(.chat-import-copy):hover,
     html.ui-themed .button-link:hover { background: var(--t-btn-hover); }
     html.ui-themed .workspace-tab { background: var(--t-btn); border-color: var(--t-btn-border); color: var(--t-btn-text); }
     html.ui-themed .workspace-tab:hover { background: var(--t-btn-hover); }
@@ -2105,6 +2105,12 @@
 
     #workspace-view-overlays .video-manager-editor.blank-deselected > :not(.video-editor-head),
     #workspace-view-images .link-detail-host.blank-deselected > :not(.image-editor-head) {
+      display: none !important;
+    }
+
+    /* Ein wirklich leerer Video-Katalog zeigt auch keinen leeren Monitorrahmen
+       und keinen Platzhalter-Kopf. Erst "+" öffnet den vollständigen Editor. */
+    #workspace-view-overlays .video-manager-editor.empty-catalog > * {
       display: none !important;
     }
 
@@ -3232,6 +3238,13 @@
          Rand der Editor-Bubble schieben; Leerraum wandert nach oben. */
       margin-top: auto;
       padding: 6px 10px 2px;
+    }
+
+    /* Ein neu angelegtes Video besitzt noch keine geladene Laufzeit, deshalb
+       ist die Zeitleiste zunächst verborgen. In diesem Zustand übernimmt der
+       Einstellungsblock den automatischen Abstand und bleibt trotzdem unten. */
+    #video-progress[hidden] + #video-settings:not([hidden]) {
+      margin-top: auto;
     }
 
     /* Kopfzeile der Zeitleiste: Beschriftung links, "Komplett abspielen" rechts. */
@@ -5548,44 +5561,78 @@
       justify-items: center;
       gap: 8px;
       width: min(220px, 88%);
+      box-sizing: border-box;
       padding: 18px 14px;
-      border: 1px dashed var(--accent, #83f28f);
+      border: 2px solid color-mix(in srgb, var(--kappi-accent-border, #5f90f2) 78%, transparent);
       border-radius: 12px;
-      background: rgba(0,0,0,.28);
+      overflow: hidden;
+      background: color-mix(in srgb, var(--kappi-accent-bg, #183866) 12%, rgba(0,0,0,.28));
       color: var(--text, #d8e2f2);
       text-align: center;
+      box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--kappi-accent-border, #5f90f2) 16%, transparent);
     }
 
     .chat-import-copy:hover,
     .chat-import-copy:focus-visible {
       border-style: solid;
-      background: rgba(131,242,143,.10);
-      box-shadow: 0 0 0 2px rgba(131,242,143,.14);
+      border-color: var(--kappi-accent-border, #5f90f2);
+      background: color-mix(in srgb, var(--kappi-accent-bg, #183866) 22%, rgba(0,0,0,.28));
+      box-shadow:
+        inset 0 0 0 1px color-mix(in srgb, var(--kappi-accent-border, #5f90f2) 24%, transparent),
+        0 0 0 2px color-mix(in srgb, var(--kappi-accent-border, #5f90f2) 18%, transparent);
     }
 
     .chat-import-plus {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
+      position: relative;
+      display: block;
+      box-sizing: border-box;
       width: 48px;
       height: 48px;
-      border: 2px solid currentColor;
+      border: 2px solid var(--kappi-accent-border, #5f90f2);
       border-radius: 50%;
-      color: var(--accent, #83f28f);
-      font-size: 34px;
-      font-weight: 300;
-      line-height: 1;
+      color: var(--kappi-accent-border, #5f90f2);
+      font-size: 0;
+      line-height: 0;
+      box-shadow: 0 0 10px color-mix(in srgb, var(--kappi-accent-border, #5f90f2) 32%, transparent);
+    }
+
+    .chat-import-plus::before,
+    .chat-import-plus::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 20px;
+      height: 2px;
+      border-radius: 2px;
+      background: currentColor;
+      transform: translate(-50%, -50%);
+    }
+
+    .chat-import-plus::after {
+      transform: translate(-50%, -50%) rotate(90deg);
     }
 
     .chat-import-label {
+      width: 100%;
+      min-width: 0;
+      max-width: 100%;
       font-weight: 700;
       line-height: 1.25;
+      white-space: normal;
+      overflow-wrap: anywhere;
     }
 
     .chat-import-help {
+      display: block;
+      width: 100%;
+      min-width: 0;
+      max-width: 100%;
       color: var(--muted, #a8b3c7);
       font-size: 10px;
       line-height: 1.35;
+      white-space: normal;
+      overflow-wrap: anywhere;
     }
 
     .chat-import-settings-row {
@@ -10182,7 +10229,10 @@
         var item = selectedVideoOverlay();
         if (item) videoEditorDeselected = false;
         var editor = document.querySelector('#workspace-view-overlays .video-manager-editor');
-        if (editor) editor.classList.toggle('blank-deselected', videoEditorDeselected);
+        if (editor) {
+          editor.classList.toggle('blank-deselected', videoEditorDeselected);
+          editor.classList.toggle('empty-catalog', videoOverlayItems.length === 0);
+        }
         var settings = byId('video-settings');
         var primaryFields = byId('video-primary-fields');
         var empty = byId('video-preview-empty');
