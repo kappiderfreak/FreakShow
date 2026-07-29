@@ -1,7 +1,7 @@
-FreakShow 1.2.4
+FreakShow 1.2.5
 ===============
 
-Diese private Entwicklungsfassung enthaelt den Funktionsstand 1.2.4.
+Diese private Entwicklungsfassung enthaelt den Funktionsstand 1.2.5.
 Eine vollstaendige Aenderungsliste steht in CHANGELOG.md.
 
 DEUTSCH

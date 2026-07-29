@@ -32,6 +32,7 @@
   // Rueckmeldung der Overlay-Dokumente zum Schalter "Hintergrund entfernen".
   var backgroundFrames = [];
   var backgroundAckById = {};
+  var backgroundSurveyById = {};
   var lastRuntimeReportSignature = '';
   var lastRuntimeReportAt = 0;
   var positionThemeAccent = '#4f7dd6';
@@ -84,6 +85,7 @@
       triggerOn: link.triggerOn === true,
       manualVersion: Math.max(0, toInt(link.manualVersion, 0)),
       transparentBg: link.transparentBg === true,
+      crop: normalizeCrop(link.crop),
       area: normalizeArea(link.area)
     };
   }
@@ -91,6 +93,26 @@
   function toInt(value, fallback) {
     var parsed = parseInt(value, 10);
     return isNaN(parsed) ? fallback : parsed;
+  }
+
+  // Zuschnitt je Seite in Prozent. Gegenueberliegende Seiten duerfen zusammen
+  // hoechstens 80 % wegnehmen, damit immer ein sichtbarer Rest bleibt.
+  function normalizeCrop(crop) {
+    crop = crop || {};
+    function side(value) {
+      var n = toInt(value, 0);
+      if (n < 0) n = 0;
+      if (n > 80) n = 80;
+      return n;
+    }
+    var out = { left: side(crop.left), top: side(crop.top), right: side(crop.right), bottom: side(crop.bottom) };
+    if (out.left + out.right > 80) out.right = Math.max(0, 80 - out.left);
+    if (out.top + out.bottom > 80) out.bottom = Math.max(0, 80 - out.top);
+    return out;
+  }
+
+  function cropIsActive(crop) {
+    return !!crop && (crop.left > 0 || crop.top > 0 || crop.right > 0 || crop.bottom > 0);
   }
 
   function normalizeArea(area) {
@@ -191,32 +213,66 @@
     return parts.base + (query ? '?' + query : '') + parts.hash;
   }
 
+  // ===== Zentrale Anbieter-Tabelle =====
+  // EINE Datei (app/overlay-providers.json) beschreibt alle bekannten Anbieter.
+  // Ein neuer Software-Hersteller wird nur dort eingetragen - hier steht keine
+  // Anbieterliste mehr im Code.
+  var PROVIDERS_URL = location.origin + '/app/overlay-providers.json';
+  var providerTable = null;
+
+  function loadProviderTable(done) {
+    try {
+      var xhr = new XMLHttpRequest();
+      xhr.open('GET', PROVIDERS_URL + '?t=' + Date.now(), true);
+      xhr.timeout = 2500;
+      xhr.onload = function () {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            var parsed = JSON.parse(xhr.responseText || '{}');
+            if (parsed && Object.prototype.toString.call(parsed.providers) === '[object Array]') {
+              providerTable = { cloudHosts: parsed.cloudHosts || [], providers: parsed.providers };
+              render(true);
+            }
+          } catch (err) {}
+        }
+        if (done) done();
+      };
+      xhr.onerror = function () { if (done) done(); };
+      xhr.ontimeout = xhr.onerror;
+      xhr.send();
+    } catch (err) { if (done) done(); }
+  }
+
+  // Passenden Tabelleneintrag zu einer Adresse finden (Host exakt, Pfad-Anfang).
+  function overlayProviderFor(url) {
+    if (!providerTable) return null;
+    var parts = parseUrl(String(url || ''));
+    var match = String(parts.base || '').match(/^https?:\/\/([^\/?#]+)(\/[^?#]*)?$/i);
+    if (!match) return null;
+    var host = String(match[1] || '').split('@').pop().split(':')[0].toLowerCase().replace(/^www\./, '');
+    var path = String(match[2] || '/').toLowerCase();
+    for (var i = 0; i < providerTable.providers.length; i++) {
+      var p = providerTable.providers[i];
+      if (!p || !p.host || host !== String(p.host).toLowerCase()) continue;
+      if (p.path && path.indexOf(String(p.path).toLowerCase()) !== 0) continue;
+      return p;
+    }
+    return null;
+  }
+
   // Cloud-/Server-gehostete Overlays (Streamlabs, StreamElements, ...) laufen NICHT
   // ueber deinen lokalen Streamer.bot. Ihnen Adresse/Port anzuhaengen zerstoert den Link.
   function isCloudHostedOverlay(url) {
+    if (!providerTable) return false;
     var m = String(url || '').match(/^[a-z][a-z0-9+.-]*:\/\/([^\/?#]+)/i);
     if (!m) return false;
     var host = m[1].split('@').pop().split(':')[0].toLowerCase();
-    var cloud = [
-      'streamlabs.com', 'streamelements.com',
-      'nightbot.tv', 'kick.com', 'twitch.tv', 'youtube.com', 'youtu.be',
-      'ko-fi.com', 'streamlabs.link', 'social-stream.ninja', 'onstream.gg',
-      'lumiastream.com', 'muxy.io', 'crowdcontrol.live',
-      'tipeeestream.com', 'donationalerts.com', 'streamdps.com', 'pretzel.rocks'
-    ];
+    var cloud = providerTable.cloudHosts;
     for (var i = 0; i < cloud.length; i++) {
-      if (host === cloud[i] || host.slice(-(cloud[i].length + 1)) === '.' + cloud[i]) return true;
+      var c = String(cloud[i] || '').toLowerCase();
+      if (host === c || host.slice(-(c.length + 1)) === '.' + c) return true;
     }
     return false;
-  }
-
-  function isTwitchAlertboxUrl(url) {
-    var parts = parseUrl(String(url || ''));
-    var match = String(parts.base || '').match(/^[a-z][a-z0-9+.-]*:\/\/([^\/?#]+)(\/[^?#]*)?$/i);
-    if (!match) return false;
-    var host = String(match[1] || '').split('@').pop().split(':')[0].toLowerCase();
-    var path = String(match[2] || '/').toLowerCase();
-    return host === 'dashboard.twitch.tv' && path.indexOf('/widgets/alertbox') === 0;
   }
 
   // Verbindungs-Parameter (evtl. frueher fest eingebacken) aus einer URL entfernen.
@@ -271,23 +327,10 @@
   // hat die Seite dieselbe (unverschluesselte) Herkunft wie die Ausgabe und darf
   // ins LAN verbinden. Die Bridge holt das Original-HTML nur in den Arbeitsspeicher.
   function bridgeRelayUrl(url) {
+    var provider = overlayProviderFor(url);
+    if (!provider || !provider.relayKind) return '';
     var parts = parseUrl(url);
-    var match = String(parts.base || '').match(/^https:\/\/([^\/?#]+)(\/[^?#]*)?$/i);
-    if (!match) return '';
-    var host = String(match[1] || '').split('@').pop().split(':')[0].toLowerCase().replace(/^www\./, '');
-    var path = String(match[2] || '/').toLowerCase();
-    var kind = '';
-    if (host === 'vortisrd.github.io' && path.indexOf('/chatrd/') === 0) kind = 'chatrd';
-    else if (host === 'mustachedmaniac.com' && path.indexOf('/widgets/viewer_queue/') === 0) kind = 'mustached-viewer-queue';
-    else if (host === 'tawmae.xyz' && path.indexOf('/overlays/') === 0) {
-      if (path.indexOf('/overlays/giphy-and-sb') === 0) kind = 'tawmae-giphy';
-      else if (path.indexOf('/overlays/better-shoutouts') === 0) kind = 'tawmae-better-shoutouts';
-      else if (path.indexOf('/overlays/dynamic-timers-v2') === 0) kind = 'tawmae-dynamic-timers-v2';
-      else if (path.indexOf('/overlays/spotify-and-sb') === 0) kind = 'tawmae-spotify';
-      else if (path.indexOf('/overlays/giveaway-overlay') === 0) kind = 'tawmae-giveaway';
-    }
-    if (!kind) return '';
-    return window.location.origin + '/external-preview/' + kind +
+    return window.location.origin + '/external-preview/' + provider.relayKind +
       (parts.query ? '?' + parts.query : '') + parts.hash;
   }
 
@@ -311,32 +354,82 @@
     return parts.base + (query ? '?' + query : '') + parts.hash;
   }
 
+  // ===== Streamer.bot Chat (chat.streamer.bot) =====
+  // Diese Seite liest Adresse und Port NICHT aus eigenen Abfrageparametern, sondern
+  // ausschliesslich aus einem base64-Block namens "config" (nachgemessen: mit
+  // host=9.9.9.9 in der Adresse verbindet sie trotzdem zum Wert aus dem Block).
+  // Adresse anzuhaengen bleibt hier also wirkungslos. Dazu kommt: Die Seite laedt
+  // ueber HTTPS und darf unverschluesselt nur zu localhost verbinden. Liegt
+  // Streamer.bot auf einem anderen PC, blockiert der Browser die Verbindung - im
+  // normalen Browser laesst sich das von Hand erlauben, im Overlay-Fenster nicht.
+  // Darum wird der Block selbst auf den lokalen Relay der Bridge umgeschrieben,
+  // die dann zum echten Streamer.bot weiterreicht.
+  function decodeBase64Utf8(value) {
+    var raw = window.atob(String(value || ''));
+    try {
+      return decodeURIComponent(window.escape ? window.escape(raw) : raw);
+    } catch (err) {
+      return raw;
+    }
+  }
+
+  function encodeBase64Utf8(text) {
+    var raw = String(text || '');
+    try {
+      raw = window.unescape ? window.unescape(encodeURIComponent(raw)) : raw;
+    } catch (err) {}
+    return window.btoa(raw);
+  }
+
+  function rewriteStreamerbotChatConfig(url, host, port) {
+    var parts = parseUrl(String(url || ''));
+    var pairs = parseQuery(parts.query);
+    var touched = false;
+    for (var i = 0; i < pairs.length; i++) {
+      if (String(pairs[i].key || '').toLowerCase() !== 'config') continue;
+      try {
+        var settings = JSON.parse(decodeBase64Utf8(pairs[i].value));
+        if (!settings || typeof settings !== 'object') continue;
+        settings.host = String(host);
+        settings.port = Number(port);
+        // Unverschluesselt: Der Relay der Bridge spricht kein TLS. Mit "secure"
+        // wuerde die Seite wss:// versuchen und in eine Zeitueberschreitung laufen.
+        settings.secure = false;
+        pairs[i].value = encodeBase64Utf8(JSON.stringify(settings));
+        touched = true;
+      } catch (err) {}
+    }
+    if (!touched) return url;
+    var query = encodeQuery(pairs);
+    return parts.base + (query ? '?' + query : '') + parts.hash;
+  }
+
   function applyConnection(link) {
     var cfg = getConnection();
     var url = link.url;
     var profile = link.profile || 'auto';
+    var provider = overlayProviderFor(url);
 
-    // Twitch-Alertbox: DIREKT von Twitch laden (wie eine OBS-Browserquelle), damit
-    // Herkunft, Sitzung und der Zugangs-Token im Link-Hash zusammenpassen. Der
-    // Riegel "X-Frame-Options: SAMEORIGIN" wird dafuer im Overlay-Fenster gezielt
-    // fuer diesen einen Host entfernt (Host.cs: EnableTwitchWidgetEmbedding).
-    // Ein Umweg ueber die lokale Bridge funktioniert hier NICHT: die Twitch-App
-    // laedt dann unter fremder Herkunft und rendert nichts.
-    if (isTwitchAlertboxUrl(url)) return url;
+    // "direct" (z. B. Twitch-Alertbox): Link UNVERAENDERT lassen. Herkunft,
+    // Sitzung und Zugangs-Token im Hash muessen zusammenpassen; der Frame-Riegel
+    // faellt dafuer im Overlay-Fenster (Host.cs liest dieselbe Tabelle).
+    if (provider && provider.connection === 'direct') return url;
 
     // Sicherheitsnetz: Cloud-Overlays NIE eigene Adresse/Port anhaengen und
     // evtl. schon eingebackene wieder ENTFERNEN, egal welches Profil gespeichert ist.
     if (isCloudHostedOverlay(url)) return stripConnectionParams(url);
 
-    if (profile === 'auto' && /tawmae\.xyz\/overlays\/giphy-and-sb/i.test(url)) {
-      profile = 'address-port';
-    }
+    // Manche Anbieter brauchen ein festes Profil, sobald "Auto" gewaehlt ist.
+    if (profile === 'auto' && provider && provider.autoProfile) profile = provider.autoProfile;
 
     // Ziel-Host/-Port bestimmen: HTTPS-Overlay + SB nicht auf localhost -> Proxy.
     var proxied = needsProxy(url, cfg.host);
     var host = proxied ? PROXY_HOST : cfg.host;
     var port = proxied ? PROXY_PORT : cfg.port;
     var wsUrl = 'ws://' + host + ':' + port + '/';
+
+    // Verbindung steckt im base64-Block "config", nicht in Parametern (chat.streamer.bot).
+    if (provider && provider.connection === 'config-base64') return rewriteStreamerbotChatConfig(url, host, port);
 
     var out;
     if (profile === 'none') out = url;
@@ -519,7 +612,8 @@
         id: id,
         visible: visibleById[id] === true,
         triggered: Object.prototype.hasOwnProperty.call(trigState, id),
-        backgroundRemoved: backgroundAckById[id] === true
+        backgroundRemoved: backgroundAckById[id] === true,
+        backgroundSurvey: backgroundSurveyById[id] || ''
       });
     }
     var signature = JSON.stringify(items);
@@ -747,6 +841,11 @@
     // sonst 404, wenn ein fremder Referer (127.0.0.1:<Port>) mitgeschickt wird.
     frame.referrerPolicy = 'no-referrer';
     frame.setAttribute('referrerpolicy', 'no-referrer');
+    // Der Wunsch "Hintergrund entfernen" wird ueber den Fensternamen mitgegeben und
+    // MUSS vor der Adresse gesetzt werden: Nur dann kennt ihn das Overlay-Dokument
+    // schon beim allerersten Bild. Eine Nachricht kaeme erst nach dem Laden - genau
+    // dazwischen war der dunkle Hintergrund kurz zu sehen.
+    frame.name = link.transparentBg === true ? 'freakshow-overlay-nobg' : 'freakshow-overlay';
     frame.src = applyConnection(link);
     frame.allow = 'autoplay; fullscreen; clipboard-read; clipboard-write; local-network-access';
     frame.setAttribute('allowtransparency', 'true');
@@ -755,6 +854,30 @@
     frame.style.top = area.preset === 'full' ? '0' : Math.round(area.y * scaleY) + 'px';
     frame.style.width = area.preset === 'full' ? '100vw' : Math.round(area.width * scaleX) + 'px';
     frame.style.height = area.preset === 'full' ? '100vh' : Math.round(area.height * scaleY) + 'px';
+
+    // Zuschnitt (Alt beim Ziehen einer Ecke): Der Inhalt behaelt seine Groesse, es
+    // wird nur etwas abgeschnitten - wie in OBS. Dafuer rendert das iframe in voller,
+    // unbeschnittener Groesse und wird so verschoben, dass der stehen bleibende Rest
+    // genau im eingestellten Feld sitzt.
+    var crop = normalizeCrop(link.crop);
+    if (cropIsActive(crop)) {
+      var visibleX = area.preset === 'full' ? 0 : area.x;
+      var visibleY = area.preset === 'full' ? 0 : area.y;
+      var visibleW = area.preset === 'full' ? sourceWidth : area.width;
+      var visibleH = area.preset === 'full' ? sourceHeight : area.height;
+      var keepX = Math.max(0.2, 1 - (crop.left + crop.right) / 100);
+      var keepY = Math.max(0.2, 1 - (crop.top + crop.bottom) / 100);
+      var fullW = visibleW / keepX;
+      var fullH = visibleH / keepY;
+      frame.style.width = Math.round(fullW * scaleX) + 'px';
+      frame.style.height = Math.round(fullH * scaleY) + 'px';
+      frame.style.left = Math.round((visibleX - fullW * crop.left / 100) * scaleX) + 'px';
+      frame.style.top = Math.round((visibleY - fullH * crop.top / 100) * scaleY) + 'px';
+      frame.style.clipPath = 'inset(' + crop.top + '% ' + crop.right + '% ' + crop.bottom + '% ' + crop.left + '%)';
+    } else {
+      frame.style.clipPath = 'none';
+    }
+
     frame.style.border = '0';
     frame.style.margin = '0';
     frame.style.padding = '0';
@@ -795,6 +918,7 @@
     for (var i = 0; i < links.length; i++) {
       parts.push(links[i].id + '|' + links[i].name + '|' + applyConnection(links[i]) +
         '|bg' + (links[i].transparentBg === true ? '1' : '0') +
+        '|crop' + JSON.stringify(normalizeCrop(links[i].crop)) +
         '|' + JSON.stringify(normalizeArea(links[i].area)));
     }
     return parts.join('\n');
@@ -901,21 +1025,25 @@
     }
   };
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', function () {
+  // Erst die Anbieter-Tabelle laden, DANN zeichnen - sonst wuerden Links im
+  // ersten Moment ohne Anbieter-Wissen behandelt und gleich darauf neu geladen.
+  function boot() {
+    loadProviderTable(function () {
       render(true);
       pollPositionTheme();
       pollPositionPreview();
       pollExternalLinks();
       startNetProbe();
     });
-  } else {
-    render(true);
-    pollPositionTheme();
-    pollPositionPreview();
-    pollExternalLinks();
-    startNetProbe();
   }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', boot);
+  } else {
+    boot();
+  }
+  // Falls der allererste Abruf scheiterte: still nachholen.
+  window.setInterval(function () { if (!providerTable) loadProviderTable(null); }, 3000);
 
   // Rueckmeldung aus einem Overlay-Dokument: Der Schalter "Hintergrund entfernen"
   // hat dieses Overlay erreicht. Die Zuordnung laeuft ueber das sendende Fenster,
@@ -927,6 +1055,7 @@
       try {
         if (backgroundFrames[i].frame.contentWindow === event.source) {
           backgroundAckById[backgroundFrames[i].id] = data.applied === true;
+          backgroundSurveyById[backgroundFrames[i].id] = String(data.survey || '').slice(0, 200);
           break;
         }
       } catch (err) {}

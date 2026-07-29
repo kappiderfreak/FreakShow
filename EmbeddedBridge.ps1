@@ -426,6 +426,14 @@ function Write-ExternalLinksJson {
       # Schalter "Hintergrund entfernen": Die Overlay-Seite reicht ihn an das
       # jeweilige iframe weiter, wo das Ausblenden stattfindet.
       transparentBg = if ($null -ne $item.transparentBg) { [bool]$item.transparentBg } else { $false }
+      # Zuschnitt in Prozent je Seite (Alt beim Ziehen einer Ecke). Der Inhalt behaelt
+      # seine Groesse, es wird nur abgeschnitten - wie in OBS.
+      crop = [ordered]@{
+        left   = Clamp-Int -Value $item.crop.left   -Fallback 0 -Min 0 -Max 80
+        top    = Clamp-Int -Value $item.crop.top    -Fallback 0 -Min 0 -Max 80
+        right  = Clamp-Int -Value $item.crop.right  -Fallback 0 -Min 0 -Max 80
+        bottom = Clamp-Int -Value $item.crop.bottom -Fallback 0 -Min 0 -Max 80
+      }
       area = [ordered]@{
         preset = if ([string]::IsNullOrWhiteSpace([string]$area.preset)) { 'full' } else { [string]$area.preset }
         x = Clamp-Int -Value $area.x -Fallback 0 -Min 0 -Max 20000
@@ -2733,8 +2741,30 @@ $script:ExternalPreviewCache = @{}
 $script:ExternalPreviewCacheAt = @{}
 $ExternalPreviewCacheMs = 600000
 
+$script:ProviderTableCache = $null
+function Get-ProviderTable {
+  if ($null -ne $script:ProviderTableCache) { return $script:ProviderTableCache }
+  try {
+    $tablePath = Join-Path $AppRoot 'overlay-providers.json'
+    if (Test-Path -LiteralPath $tablePath -PathType Leaf) {
+      $script:ProviderTableCache = (Get-Content -LiteralPath $tablePath -Raw -Encoding UTF8 | ConvertFrom-Json)
+    }
+  } catch { $script:ProviderTableCache = $null }
+  return $script:ProviderTableCache
+}
+
 function Get-ExternalPreviewDefinition {
   param([string]$Kind)
+  # Zuerst die zentrale Anbieter-Tabelle (app/overlay-providers.json) befragen.
+  # Der Code-switch darunter bleibt nur als Rueckfallebene, falls die Datei fehlt.
+  $table = Get-ProviderTable
+  if ($null -ne $table -and $null -ne $table.providers) {
+    foreach ($provider in @($table.providers)) {
+      if ($null -eq $provider -or [string]$provider.relayKind -ne $Kind) { continue }
+      if ([string]::IsNullOrWhiteSpace([string]$provider.relayUrl)) { continue }
+      return @{ Url = [string]$provider.relayUrl; Base = [string]$provider.relayBase }
+    }
+  }
   switch ($Kind) {
     'chatrd' {
       return @{ Url = 'https://vortisrd.github.io/chatrd/chat.html'; Base = 'https://vortisrd.github.io/chatrd/' }
@@ -2813,6 +2843,96 @@ function Write-ExternalPreviewResponse {
     return
   }
   Write-HttpResponse -Stream $Stream -StatusCode 200 -Reason 'OK' -Body $html -ContentType 'text/html; charset=utf-8'
+}
+
+# ===== Vorschau-Proxy fuer Anbieter mit Einbettungssperre (previewProxy=true) =====
+# Ein normaler Browser darf den X-Frame-Options-Riegel nicht entfernen. Liefert die
+# Bridge die Seite UND ihre Dateien selbst aus, kommt alles aus unserer Herkunft -
+# der Riegel greift nicht und die Steuerseite kann eine echte Vorschau zeigen.
+# Ziele sind auf die Anbieter-Tabelle beschraenkt (kein freier Proxy/SSRF).
+function Write-BytesResponse {
+  param([System.IO.Stream]$Stream, [int]$StatusCode, [string]$Reason, [byte[]]$Bytes, [string]$ContentType)
+  if ($null -eq $Bytes) { $Bytes = New-Object byte[] 0 }
+  $corsHeaders = @(Get-CorsResponseHeaders)
+  $headers = @(
+    "HTTP/1.1 $StatusCode $Reason",
+    "Content-Type: $ContentType",
+    "Content-Length: $($Bytes.Length)"
+  ) + $corsHeaders + @('Cache-Control: no-store', 'Connection: close', '', '') -join "`r`n"
+  $headerBytes = [System.Text.Encoding]::ASCII.GetBytes($headers)
+  $Stream.Write($headerBytes, 0, $headerBytes.Length)
+  if ($Bytes.Length -gt 0) { $Stream.Write($Bytes, 0, $Bytes.Length) }
+  $Stream.Flush()
+}
+
+function Get-PreviewProxyProvider {
+  param([string]$Id)
+  $table = Get-ProviderTable
+  if ($null -eq $table -or $null -eq $table.providers) { return $null }
+  foreach ($provider in @($table.providers)) {
+    if ($null -ne $provider -and $provider.previewProxy -eq $true -and [string]$provider.id -eq $Id) { return $provider }
+  }
+  return $null
+}
+
+function Invoke-PreviewProxyFetch {
+  param([string]$TargetUrl)
+  try { [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12 } catch {}
+  $request = [System.Net.HttpWebRequest]::Create($TargetUrl)
+  $request.Method = 'GET'
+  $request.Timeout = 15000
+  $request.UserAgent = 'Mozilla/5.0 FreakShow overlay-preview'
+  $request.AutomaticDecompression = [System.Net.DecompressionMethods]::GZip -bor [System.Net.DecompressionMethods]::Deflate
+  $response = $request.GetResponse()
+  try {
+    $memory = New-Object System.IO.MemoryStream
+    $response.GetResponseStream().CopyTo($memory)
+    return @{ Bytes = $memory.ToArray(); ContentType = [string]$response.ContentType }
+  } finally { $response.Close() }
+}
+
+function Write-PreviewProxyResponse {
+  param([System.IO.Stream]$Stream, [string]$RequestPath, [string]$Query)
+  $rest = $RequestPath.Substring('/preview-proxy/'.Length)
+  $slash = $rest.IndexOf('/')
+  $id = if ($slash -ge 0) { $rest.Substring(0, $slash) } else { $rest }
+  $tail = if ($slash -ge 0) { $rest.Substring($slash) } else { '/' }
+  $provider = Get-PreviewProxyProvider -Id $id
+  if ($null -eq $provider) {
+    Write-HttpResponse -Stream $Stream -StatusCode 404 -Reason 'Not Found' -Body '{"ok":false,"error":"unknown preview proxy"}'
+    return
+  }
+  $target = 'https://' + [string]$provider.host + $tail + $Query
+  try {
+    $fetched = Invoke-PreviewProxyFetch -TargetUrl $target
+    $contentType = if ([string]::IsNullOrWhiteSpace($fetched.ContentType)) { 'application/octet-stream' } else { $fetched.ContentType }
+    if ($contentType -match 'text/html') {
+      $html = [System.Text.Encoding]::UTF8.GetString($fetched.Bytes)
+      # Wurzel-absolute Verweise (src="/assets/...") hinter den Proxy legen.
+      $prefix = '/preview-proxy/' + $id
+      $html = $html.Replace('src="/', 'src="' + $prefix + '/').Replace('href="/', 'href="' + $prefix + '/')
+      Write-HttpResponse -Stream $Stream -StatusCode 200 -Reason 'OK' -Body $html -ContentType 'text/html; charset=utf-8'
+      return
+    }
+    Write-BytesResponse -Stream $Stream -StatusCode 200 -Reason 'OK' -Bytes $fetched.Bytes -ContentType $contentType
+  } catch {
+    Write-HttpResponse -Stream $Stream -StatusCode 502 -Reason 'Bad Gateway' -Body '{"ok":false,"error":"preview proxy fetch failed"}'
+  }
+}
+
+# Vom App-Code zur Laufzeit nachgeladene Dateien fragen wurzel-absolute Pfade an
+# (z. B. /assets/chunk.js) - die stehen je Anbieter in proxyRootPaths.
+function Get-PreviewProxyRootProvider {
+  param([string]$RequestPath)
+  $table = Get-ProviderTable
+  if ($null -eq $table -or $null -eq $table.providers) { return $null }
+  foreach ($provider in @($table.providers)) {
+    if ($null -eq $provider -or $provider.previewProxy -ne $true -or $null -eq $provider.proxyRootPaths) { continue }
+    foreach ($root in @($provider.proxyRootPaths)) {
+      if (-not [string]::IsNullOrWhiteSpace([string]$root) -and $RequestPath.StartsWith([string]$root, [System.StringComparison]::OrdinalIgnoreCase)) { return $provider }
+    }
+  }
+  return $null
 }
 
 function Get-ContentTypeForPath {
@@ -3634,6 +3754,33 @@ while ($true) {
       continue
     }
 
+    # Vorschau-Proxy (Anbieter mit Einbettungssperre, previewProxy=true in der Tabelle).
+    if ($method -eq 'GET' -and $path.StartsWith('/preview-proxy/', [System.StringComparison]::OrdinalIgnoreCase)) {
+      $proxyQuery = ''
+      $proxyQm = $rawUrl.IndexOf('?')
+      if ($proxyQm -ge 0) { $proxyQuery = $rawUrl.Substring($proxyQm) }
+      Write-PreviewProxyResponse -Stream $stream -RequestPath $path -Query $proxyQuery
+      continue
+    }
+
+    # Wurzel-absolute Nachlade-Pfade solcher Anbieter (z. B. /assets/... von Voicemod).
+    if ($method -eq 'GET') {
+      $rootProxyProvider = Get-PreviewProxyRootProvider -RequestPath $path
+      if ($null -ne $rootProxyProvider) {
+        $proxyQuery = ''
+        $proxyQm = $rawUrl.IndexOf('?')
+        if ($proxyQm -ge 0) { $proxyQuery = $rawUrl.Substring($proxyQm) }
+        try {
+          $fetched = Invoke-PreviewProxyFetch -TargetUrl ('https://' + [string]$rootProxyProvider.host + $path + $proxyQuery)
+          $rootType = if ([string]::IsNullOrWhiteSpace($fetched.ContentType)) { 'application/octet-stream' } else { $fetched.ContentType }
+          Write-BytesResponse -Stream $stream -StatusCode 200 -Reason 'OK' -Bytes $fetched.Bytes -ContentType $rootType
+        } catch {
+          Write-HttpResponse -Stream $stream -StatusCode 502 -Reason 'Bad Gateway' -Body '{"ok":false,"error":"preview proxy fetch failed"}'
+        }
+        continue
+      }
+    }
+
     # index.html liegt jetzt in app/, wird aber weiter unter /content/index.html
     # ausgeliefert, damit der relative Basis-Pfad (/content/) fuer die 82 Video-Module
     # und die Effekt-Skripte korrekt bleibt.
@@ -4261,6 +4408,12 @@ while ($true) {
             triggered = [bool]$runtimeItem.triggered
             # Meldung des Overlay-Dokuments: Hintergrund wurde dort wirklich entfernt.
             backgroundRemoved = [bool]$runtimeItem.backgroundRemoved
+            # Kurzer Befund aus dem Overlay-Dokument (Farbschema, Flaechen) zur
+            # Zuordnung gemeldeter Rest-Hintergruende.
+            backgroundSurvey = if ($null -ne $runtimeItem.backgroundSurvey) {
+              $s = [string]$runtimeItem.backgroundSurvey
+              if ($s.Length -gt 200) { $s.Substring(0, 200) } else { $s }
+            } else { '' }
           }
         }
         $externalLinksRuntime = [ordered]@{

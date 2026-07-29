@@ -1993,14 +1993,18 @@
        Sie war bei kleineren Fenstern unterhalb des sichtbaren Bereichs gelandet. */
     @media (min-width: 821px) {
       #workspace-view-links .link-browser { padding-bottom: 58px; box-sizing: border-box; }
+      /* 1:1 wie bei Video/Bilder/Notizen: die Aktionsreihe ist ein rechtsbuendiger
+         Knopf-Block unten - KEIN durchgehender Balken. Deshalb weder volle Breite
+         noch Trennlinie noch eigener Hintergrund. */
       #workspace-view-links .link-browser > .link-card-actions {
         position: absolute;
         z-index: 4;
-        left: 0;
+        left: auto;
         right: 0;
         bottom: 0;
-        border-top: 1px solid rgba(255,255,255,.12);
-        background: color-mix(in srgb, var(--t-panel, #161226) 88%, transparent);
+        width: auto;
+        border-top: 0;
+        background: transparent;
       }
     }
     @media (max-width: 820px) {
@@ -5140,6 +5144,24 @@
       pointer-events: none;
     }
 
+    /* NUR bei eingeschaltetem "Hintergrund entfernen": Der Browser malt hinter
+       fremde Seiten im Dunkelmodus (z. B. chat.streamer.bot) eine deckende dunkle
+       Flaeche - der Inhalt selbst ist transparent. Stimmen die Farbschemata
+       ueberein, entfaellt die Flaeche und die Vorschau zeigt dieselbe Transparenz
+       wie das Overlay. Bei AUSgeschaltetem Schalter bleibt sie bewusst stehen,
+       denn dann zeigt auch das Overlay die dunkle Flaeche. */
+    .link-card-screen-frame.bg-removed {
+      color-scheme: light dark;
+    }
+
+    /* Sobald eine echte Live-Vorschau im Feld sitzt, bleibt das Feld ungefaerbt -
+       die Akzent-Toenung wuerde sonst den Inhalt einfaerben. Rahmen und Eckpunkte
+       zeigen die Position weiterhin an. */
+    .link-card-screen-rect.has-frame,
+    html.ui-themed .link-card-screen-rect.has-frame {
+      background: transparent;
+    }
+
     .link-card-screen-rect {
       position: absolute;
       display: grid;
@@ -5178,6 +5200,7 @@
     .link-card-resize-handle.handle-ne { right: 3px; top: 3px; cursor: nesw-resize; }
     .link-card-resize-handle.handle-sw { left: 3px; bottom: 3px; cursor: nesw-resize; }
     .link-card-resize-handle.handle-se { right: 3px; bottom: 3px; cursor: nwse-resize; }
+
 
     /* Einheitliche thematische Eckpunkte für Video, Bilder, Notizen und
        Web-Overlays. Form/Größe/Ring sind überall identisch; Füllung und Glow
@@ -6063,7 +6086,7 @@
     }
   </style>
   <script src="overlay-config.js"></script>
-  <script src="/app/overlay-link-recognizer.js?v=20260725-provider2"></script>
+  <script src="/app/overlay-link-recognizer.js?v=20260727-providers"></script>
 </head>
 <body>
   <div class="page-header">
@@ -6147,10 +6170,6 @@
         <label class="link-add-hidden">Feld
           <select id="link-area-preset" class="area-preset">
             <option value="full">Vollbild</option>
-            <option value="top-right">Rechts oben</option>
-            <option value="bottom-right">Rechts unten</option>
-            <option value="bottom-left">Links unten</option>
-            <option value="center">Mitte</option>
             <option value="custom">Eigen</option>
           </select>
         </label>
@@ -12190,6 +12209,7 @@
               manualVersion: Math.max(0, parseInt(parsed[i].manualVersion || 0, 10) || 0),
               positionPreview: parsed[i].positionPreview === true,
               transparentBg: parsed[i].transparentBg === true,
+              crop: normalizeLinkCrop(parsed[i].crop),
               area: normalizeArea(parsed[i].area),
               visible: false
             });
@@ -12219,6 +12239,7 @@
             manualVersion: Math.max(0, parseInt(linkItems[i].manualVersion || 0, 10) || 0),
             positionPreview: linkItems[i].positionPreview === true,
             transparentBg: linkItems[i].transparentBg === true,
+            crop: normalizeLinkCrop(linkItems[i].crop),
             area: normalizeArea(linkItems[i].area)
           });
         }
@@ -12319,6 +12340,22 @@
         window.localStorage.setItem(PARAM_STORAGE_KEY, JSON.stringify(settings));
       }
 
+      // Zuschnitt je Seite in Prozent (Alt beim Ziehen einer Ecke). Zwei
+      // gegenueberliegende Seiten duerfen zusammen hoechstens 80 % wegnehmen.
+      function normalizeLinkCrop(crop) {
+        crop = crop || {};
+        function side(value) {
+          var n = parseInt(value, 10);
+          if (isNaN(n) || n < 0) n = 0;
+          if (n > 80) n = 80;
+          return n;
+        }
+        var out = { left: side(crop.left), top: side(crop.top), right: side(crop.right), bottom: side(crop.bottom) };
+        if (out.left + out.right > 80) out.right = Math.max(0, 80 - out.left);
+        if (out.top + out.bottom > 80) out.bottom = Math.max(0, 80 - out.top);
+        return out;
+      }
+
       function normalizeArea(area) {
         area = area || {};
         return {
@@ -12340,39 +12377,81 @@
         });
       }
 
+      // Neun Positionen: Ecken, Kantenmitten und Mitte. Sie VERSCHIEBEN das Feld
+      // nur - Breite, Hoehe und damit die Form bleiben unveraendert. Die Groesse
+      // aendert allein "Vollbild"; alles Freie laeuft ueber "Eigen".
+      var AREA_POSITION_PRESETS = {
+        'top-left':      { h: 'start',  v: 'start'  },
+        'top-center':    { h: 'center', v: 'start'  },
+        'top-right':     { h: 'end',    v: 'start'  },
+        'left-center':   { h: 'start',  v: 'center' },
+        'center':        { h: 'center', v: 'center' },
+        'right-center':  { h: 'end',    v: 'center' },
+        'bottom-left':   { h: 'start',  v: 'end'    },
+        'bottom-center': { h: 'center', v: 'end'    },
+        'bottom-right':  { h: 'end',    v: 'end'    }
+      };
+
       function areaForPreset(preset, current) {
         preset = preset || 'full';
         var monitor = readMonitorFields();
         var width = monitor.monitorWidth;
         var height = monitor.monitorHeight;
-        var area = { preset: preset, x: 0, y: 0, width: width, height: height };
 
-        if (preset === 'top-right') {
-          area.width = Math.round(width * 0.34);
-          area.height = Math.round(height * 0.34);
-          area.x = Math.max(0, width - area.width);
-          area.y = 0;
-        } else if (preset === 'bottom-right') {
-          area.width = Math.round(width * 0.34);
-          area.height = Math.round(height * 0.34);
-          area.x = Math.max(0, width - area.width);
-          area.y = Math.max(0, height - area.height);
-        } else if (preset === 'bottom-left') {
-          area.width = Math.round(width * 0.34);
-          area.height = Math.round(height * 0.34);
-          area.x = 0;
-          area.y = Math.max(0, height - area.height);
-        } else if (preset === 'center') {
-          area.width = Math.round(width * 0.5);
-          area.height = Math.round(height * 0.5);
-          area.x = Math.max(0, Math.round((width - area.width) / 2));
-          area.y = Math.max(0, Math.round((height - area.height) / 2));
-        } else if (preset === 'custom') {
-          area = normalizeArea(current || areaFromFields());
-          area.preset = 'custom';
+        if (preset === 'full') {
+          return { preset: 'full', x: 0, y: 0, width: width, height: height };
+        }
+        if (preset === 'custom') {
+          var own = normalizeArea(current || areaFromFields());
+          own.preset = 'custom';
+          return own;
         }
 
-        return area;
+        var base = normalizeArea(current || areaFromFields());
+        var keepWidth = Math.min(Math.max(20, base.width), width);
+        var keepHeight = Math.min(Math.max(20, base.height), height);
+        var spot = AREA_POSITION_PRESETS[preset];
+        if (!spot) {
+          return { preset: preset, x: base.x, y: base.y, width: keepWidth, height: keepHeight };
+        }
+
+        function place(total, size, mode) {
+          if (mode === 'start') return 0;
+          if (mode === 'end') return Math.max(0, total - size);
+          return Math.max(0, Math.round((total - size) / 2));
+        }
+
+        // Eine Position ist KEINE eigene Groessenart: Das Feld behaelt seine Masse
+        // und bleibt damit "Eigen". Nur die Lage aendert sich.
+        return {
+          preset: 'custom',
+          x: place(width, keepWidth, spot.h),
+          y: place(height, keepHeight, spot.v),
+          width: keepWidth,
+          height: keepHeight
+        };
+      }
+
+      // Aus x/y ablesen, auf welcher der neun Stellen das Feld gerade sitzt.
+      // Dadurch braucht die Position keinen eigenen gespeicherten Wert.
+      function positionOfArea(area) {
+        area = normalizeArea(area || {});
+        var monitor = readMonitorFields();
+        function spot(pos, size, total) {
+          if (size >= total) return 'center';
+          if (pos <= 2) return 'start';
+          if (pos >= total - size - 2) return 'end';
+          var middle = Math.round((total - size) / 2);
+          return Math.abs(pos - middle) <= 2 ? 'center' : '';
+        }
+        var h = spot(area.x, area.width, monitor.monitorWidth);
+        var v = spot(area.y, area.height, monitor.monitorHeight);
+        if (!h || !v) return '';
+        for (var name in AREA_POSITION_PRESETS) {
+          if (!Object.prototype.hasOwnProperty.call(AREA_POSITION_PRESETS, name)) continue;
+          if (AREA_POSITION_PRESETS[name].h === h && AREA_POSITION_PRESETS[name].v === v) return name;
+        }
+        return '';
       }
 
       function syncAreaFields(area) {
@@ -14003,12 +14082,70 @@
       // Baut ein iframe in ein Vorschau-Rechteck und skaliert es originalgetreu
       // (echte Feldgröße rendern, dann per scale() verkleinern). Rückgabe: das
       // iframe (oder null, wenn die URL nicht einbettbar ist).
-      function attachLinkScreenFrame(rect, url, area) {
-        var canFrame = !!url && (/^https?:\/\//i.test(url) || /^file:\/\//i.test(url) || /\.html(?:[?#].*)?$/i.test(url));
+      // Anbieter, die eine Einbettung per Kopfzeile verbieten (X-Frame-Options).
+      // Voicemod sendet DENY, Twitch SAMEORIGIN. Im Overlay-Fenster entfernt
+      // FreakShow diesen Riegel und zeigt sie an - diese Steuerseite laeuft aber im
+      // normalen Browser, dort ist das nicht erlaubt. Ohne diese Erkennung malt der
+      // Browser eine weisse Flaeche mit einem kaputten Bildsymbol, was wie ein
+      // Fehler von FreakShow aussieht.
+      function blocksFramePreview(url) {
+        var match = String(url || '').match(/^https?:\/\/([^\/?#]+)/i);
+        if (!match) return false;
+        var host = String(match[1]).split('@').pop().split(':')[0].toLowerCase().replace(/^www\./, '');
+        // Zentrale Anbieter-Tabelle (app/overlay-providers.json): previewBlocked=true.
+        var table = window.FreakShowProviders;
+        if (table && table.providers) {
+          for (var i = 0; i < table.providers.length; i++) {
+            var provider = table.providers[i];
+            if (provider && provider.previewBlocked === true &&
+                String(provider.host || '').toLowerCase() === host) return true;
+          }
+          return false;
+        }
+        // Rueckfallebene, solange die Tabelle noch nicht geladen ist.
+        return host === 'overlay.voicemod.net' || host === 'dashboard.twitch.tv';
+      }
+
+      // Die zentrale Anbieter-Tabelle einmal laden; Erkennung und Vorschau-Sperre
+      // lesen sie ueber window.FreakShowProviders.
+      (function loadFreakShowProviders() {
+        try {
+          fetch('/app/overlay-providers.json?t=' + Date.now(), { cache: 'no-store' })
+            .then(function (response) { return response.ok ? response.json() : null; })
+            .then(function (parsed) {
+              if (parsed && parsed.providers) window.FreakShowProviders = parsed;
+            })
+            .catch(function () {});
+        } catch (err) {}
+      })();
+
+      // Vorschau-Adresse bestimmen: Anbieter mit Einbettungssperre laufen ueber den
+      // Vorschau-Proxy der Bridge (previewProxy in der Tabelle) - dann kommt die
+      // Seite aus unserer Herkunft und der Riegel greift nicht. Ohne Proxy und mit
+      // Sperre bleibt der Platzhalter (''), sonst die Originaladresse.
+      function previewFrameUrl(url) {
+        var match = String(url || '').match(/^https?:\/\/([^\/?#]+)([^#]*)?(#.*)?$/i);
+        if (!match) return url;
+        var host = String(match[1]).split('@').pop().split(':')[0].toLowerCase().replace(/^www\./, '');
+        var table = window.FreakShowProviders;
+        if (!table || !table.providers) return blocksFramePreview(url) ? '' : url;
+        for (var i = 0; i < table.providers.length; i++) {
+          var p = table.providers[i];
+          if (!p || String(p.host || '').toLowerCase() !== host) continue;
+          if (p.previewProxy === true) return '/preview-proxy/' + String(p.id) + (match[2] || '/') + (match[3] || '');
+          if (p.previewBlocked === true) return '';
+          break;
+        }
+        return url;
+      }
+
+      function attachLinkScreenFrame(rect, url, area, bgRemoved) {
+        url = previewFrameUrl(url);
+        var canFrame = !!url && (/^https?:\/\//i.test(url) || /^\/preview-proxy\//i.test(url) || /^file:\/\//i.test(url) || /\.html(?:[?#].*)?$/i.test(url));
         if (!canFrame) return null;
         rect.classList.add('has-frame');
         var frame = document.createElement('iframe');
-        frame.className = 'link-card-screen-frame';
+        frame.className = 'link-card-screen-frame' + (bgRemoved === true ? ' bg-removed' : '');
         frame.referrerPolicy = 'no-referrer';
         frame.setAttribute('referrerpolicy', 'no-referrer');
         frame.src = url;
@@ -14036,6 +14173,14 @@
         if (!groupName) return;
         linkEditorDeselected = false;
         selectedLinkGroup = groupName;
+        // 1:1 wie bei den Notizen: Beim Anklicken der Gruppe ist sofort das erste
+        // Overlay der Gruppe im Editor aktiv - samt Gruppen-Schnellwahl. War schon
+        // ein Mitglied dieser Gruppe gewaehlt, bleibt es gewaehlt.
+        var mates = linkGroupItems(groupName);
+        var current = findLink(selectedLinkId);
+        if (mates.length && (!current || linkGroupOf(current.id) !== groupName)) {
+          selectedLinkId = mates[0].id;
+        }
         renderLinks();
         renderMonitorPreview();
       }
@@ -14128,7 +14273,7 @@
             rect.style.zIndex = (item.id === selectedLinkId) ? '99999' : String(items.length - idx);
 
             var frameArea = { width: area.width, height: area.height };
-            var frame = attachLinkScreenFrame(rect, detail.url, frameArea);
+            var frame = attachLinkScreenFrame(rect, detail.url, frameArea, item.transparentBg === true);
             function fitFrame() {
               if (!frame) return;
               var w = Math.max(1, frameArea.width), h = Math.max(1, frameArea.height);
@@ -14227,7 +14372,39 @@
         }
 
         screenFit.appendChild(screen);
-        body.appendChild(screenFit);
+
+        // Gleiche Zwei-Spalten-Aufteilung wie die Einzel-Ansicht: Monitor links,
+        // rechts die Einstellungs-Spalte. Dort - und nur dort - sitzt die Auswahl,
+        // welches Element der Gruppe gerade bewegt werden soll.
+        var monitorWrap = document.createElement('div');
+        monitorWrap.className = 'link-card-monitor';
+        monitorWrap.appendChild(screenFit);
+
+        var info = document.createElement('div');
+        info.className = 'link-card-info';
+        if (items.length) {
+          var groupSettings = document.createElement('div');
+          groupSettings.className = 'link-card-settings';
+          var memberSelect = document.createElement('select');
+          memberSelect.className = 'area-preset link-group-member-select';
+          memberSelect.title = 'Overlay in dieser Gruppe direkt auswählen';
+          for (var msi = 0; msi < items.length; msi++) {
+            var msOpt = document.createElement('option');
+            msOpt.value = items[msi].id;
+            msOpt.textContent = '#' + normalizeIndexNumber(linkVisualIndexOf(items[msi])) + ' ' + (items[msi].name || 'Overlay');
+            memberSelect.appendChild(msOpt);
+          }
+          var currentMember = findLink(selectedLinkId);
+          if (currentMember && linkGroupOf(currentMember.id) === groupName) memberSelect.value = currentMember.id;
+          memberSelect.onchange = function () {
+            if (memberSelect.value) focusGroupMember(memberSelect.value);
+          };
+          groupSettings.appendChild(makeSettingLabel('Element', memberSelect));
+          info.appendChild(groupSettings);
+        }
+
+        body.appendChild(monitorWrap);
+        body.appendChild(info);
         card.appendChild(head);
         card.appendChild(body);
         return card;
@@ -14244,7 +14421,10 @@
         var sub = document.createElement('span');
         var monitor = readMonitorFields();
         var area = clampAreaToMonitor(item.area);
-        var canFrame = !!detail.url && (/^https?:\/\//i.test(detail.url) || /^file:\/\//i.test(detail.url) || /\.html(?:[?#].*)?$/i.test(detail.url));
+        // Vorschau-Adresse: Anbieter mit Einbettungssperre laufen ueber den
+        // Vorschau-Proxy der Bridge; ohne Proxy bleibt der Platzhalter.
+        var editorPreviewUrl = previewFrameUrl(detail.url);
+        var canFrame = !!editorPreviewUrl && (/^https?:\/\//i.test(editorPreviewUrl) || /^\/preview-proxy\//i.test(editorPreviewUrl) || /^file:\/\//i.test(editorPreviewUrl) || /\.html(?:[?#].*)?$/i.test(editorPreviewUrl));
 
         wrap.className = 'link-card-monitor';
         title.className = 'link-card-monitor-title';
@@ -14272,12 +14452,12 @@
         }
         if (canFrame) {
           rect.className += ' has-frame';
-          frame.className = 'link-card-screen-frame';
+          frame.className = 'link-card-screen-frame' + (item.transparentBg === true ? ' bg-removed' : '');
           // Kein Referer senden -> verhaelt sich wie eine OBS-Browserquelle.
           // Streamlabs & Co. liefern sonst 404, wenn ein fremder Referer (127.0.0.1) mitkommt.
           frame.referrerPolicy = 'no-referrer';
           frame.setAttribute('referrerpolicy', 'no-referrer');
-          frame.src = detail.url;
+          frame.src = editorPreviewUrl;
           frame.loading = 'eager';
           frame.allow = 'autoplay; fullscreen; clipboard-read; clipboard-write; local-network-access; local-network; loopback-network';
           frame.setAttribute('aria-hidden', 'true');
@@ -14317,6 +14497,7 @@
           event.preventDefault();
           event.stopPropagation();
           var startArea = clampAreaToMonitor(item.area);
+          var startCrop = normalizeLinkCrop(item.crop);
           var startX = event.clientX;
           var startY = event.clientY;
           var moved = false;
@@ -14334,9 +14515,59 @@
               height: startArea.height
             };
             var minSize = 20;
+            var nextCrop = null;
 
             moved = moved || Math.abs(dx) > 0 || Math.abs(dy) > 0;
-            if (handle) {
+            // Ecken (zwei Buchstaben, z. B. "nw") skalieren PROPORTIONAL: das Feld
+            // wird nur kleiner oder groesser, das Seitenverhaeltnis bleibt. Die
+            // gegenueberliegende Ecke bleibt dabei stehen - wie in OBS.
+            // Kantengriffe (ein Buchstabe) ziehen weiterhin nur ihre eine Seite.
+            var isCorner = !!handle && handle.length === 2;
+            if (isCorner && eventMove.altKey) {
+              // ALT = ZUSCHNEIDEN. Der Inhalt behaelt seine Groesse, es wird nur an
+              // den beiden Seiten dieser Ecke etwas abgeschnitten - wie in OBS.
+              var keepX0 = Math.max(0.2, 1 - (startCrop.left + startCrop.right) / 100);
+              var keepY0 = Math.max(0.2, 1 - (startCrop.top + startCrop.bottom) / 100);
+              var fullW0 = startArea.width / keepX0;
+              var fullH0 = startArea.height / keepY0;
+              var cut = { left: startCrop.left, top: startCrop.top, right: startCrop.right, bottom: startCrop.bottom };
+
+              if (handle.indexOf('e') >= 0) {
+                cut.right = clampRectValue(Math.round(startCrop.right - dx / fullW0 * 100), 0, 80 - startCrop.left);
+              } else {
+                cut.left = clampRectValue(Math.round(startCrop.left + dx / fullW0 * 100), 0, 80 - startCrop.right);
+              }
+              if (handle.indexOf('s') >= 0) {
+                cut.bottom = clampRectValue(Math.round(startCrop.bottom - dy / fullH0 * 100), 0, 80 - startCrop.top);
+              } else {
+                cut.top = clampRectValue(Math.round(startCrop.top + dy / fullH0 * 100), 0, 80 - startCrop.bottom);
+              }
+
+              next.width = Math.max(minSize, Math.round(fullW0 * (1 - (cut.left + cut.right) / 100)));
+              next.height = Math.max(minSize, Math.round(fullH0 * (1 - (cut.top + cut.bottom) / 100)));
+              // Nur die angefasste Seite wandert; die gegenueberliegende bleibt stehen.
+              next.x = startArea.x + (handle.indexOf('w') >= 0 ? Math.round((cut.left - startCrop.left) / 100 * fullW0) : 0);
+              next.y = startArea.y + (handle.indexOf('n') >= 0 ? Math.round((cut.top - startCrop.top) / 100 * fullH0) : 0);
+              next.x = clampRectValue(next.x, 0, Math.max(0, monitor.monitorWidth - next.width));
+              next.y = clampRectValue(next.y, 0, Math.max(0, monitor.monitorHeight - next.height));
+              nextCrop = cut;
+            } else if (isCorner) {
+              var growX = handle.indexOf('e') >= 0 ? dx : -dx;
+              var growY = handle.indexOf('s') >= 0 ? dy : -dy;
+              var factor = ((startArea.width + growX) / startArea.width +
+                            (startArea.height + growY) / startArea.height) / 2;
+              var minFactor = Math.max(minSize / startArea.width, minSize / startArea.height);
+              var maxFactor = Math.min(monitor.monitorWidth / startArea.width,
+                                       monitor.monitorHeight / startArea.height);
+              if (!(factor > 0)) factor = minFactor;
+              factor = Math.min(Math.max(factor, minFactor), maxFactor);
+              next.width = Math.max(minSize, Math.round(startArea.width * factor));
+              next.height = Math.max(minSize, Math.round(startArea.height * factor));
+              next.x = handle.indexOf('w') >= 0 ? (startArea.x + startArea.width - next.width) : startArea.x;
+              next.y = handle.indexOf('n') >= 0 ? (startArea.y + startArea.height - next.height) : startArea.y;
+              next.x = clampRectValue(next.x, 0, Math.max(0, monitor.monitorWidth - next.width));
+              next.y = clampRectValue(next.y, 0, Math.max(0, monitor.monitorHeight - next.height));
+            } else if (handle) {
               if (handle.indexOf('e') >= 0) {
                 next.width = clampRectValue(startArea.width + dx, minSize, monitor.monitorWidth - startArea.x);
               }
@@ -14357,6 +14588,7 @@
             }
 
             item.area = next;
+            if (nextCrop) item.crop = nextCrop;
             paintLinkCardArea(next);
           }
 
@@ -14379,11 +14611,14 @@
           if (event.target && event.target.dataset && event.target.dataset.resize) return;
           beginLinkCardAreaEdit(event, monitorBorderResizeHandle(event, rect, 10));
         };
+        // Bewusst NUR vier Eckpunkte. Sie skalieren gleichmaessig - kleiner oder
+        // groesser, nie verzerrt und nie zuschneidend. Zuschneiden laeuft
+        // ausschliesslich ueber Alt.
         ['nw', 'ne', 'sw', 'se'].forEach(function (handleName) {
           var handle = document.createElement('span');
           handle.className = 'link-card-resize-handle handle-' + handleName;
           handle.dataset.resize = handleName;
-          handle.title = 'Feldgröße ändern';
+          handle.title = 'Ecke ziehen: gleichmäßig kleiner oder größer';
           handle.onpointerdown = function (event) {
             beginLinkCardAreaEdit(event, handleName);
           };
@@ -14552,13 +14787,32 @@
       function createAreaSelect(value) {
         var select = document.createElement('select');
         select.className = 'area-preset';
+        // Nur die GROESSE. Die Lage steht in einem eigenen Feld daneben, weil das
+        // zwei verschiedene Dinge sind.
         addSelectOption(select, 'full', 'Vollbild');
-        addSelectOption(select, 'top-right', 'Rechts oben');
-        addSelectOption(select, 'bottom-right', 'Rechts unten');
-        addSelectOption(select, 'bottom-left', 'Links unten');
-        addSelectOption(select, 'center', 'Mitte');
         addSelectOption(select, 'custom', 'Eigen');
         select.value = value || 'full';
+        return select;
+      }
+
+      // Zweites Feld: NUR die Lage. Es aendert weder Groesse noch Form - es schiebt
+      // das Feld an eine der neun Stellen. "Frei" erscheint, solange es auf keiner
+      // davon sitzt (z. B. nach dem Ziehen mit der Maus).
+      function createAreaPositionSelect(area) {
+        var select = document.createElement('select');
+        var current = positionOfArea(area);
+        select.className = 'area-preset';
+        if (!current) addSelectOption(select, '', 'Frei');
+        addSelectOption(select, 'top-left', 'Links oben');
+        addSelectOption(select, 'top-center', 'Oben Mitte');
+        addSelectOption(select, 'top-right', 'Rechts oben');
+        addSelectOption(select, 'left-center', 'Links Mitte');
+        addSelectOption(select, 'center', 'Mitte');
+        addSelectOption(select, 'right-center', 'Rechts Mitte');
+        addSelectOption(select, 'bottom-left', 'Links unten');
+        addSelectOption(select, 'bottom-center', 'Unten Mitte');
+        addSelectOption(select, 'bottom-right', 'Rechts unten');
+        select.value = current;
         return select;
       }
 
@@ -14576,6 +14830,7 @@
         var area = normalizeArea(item.area);
         var profileSelect = createProfileSelect(item.profile || 'auto');
         var areaSelect = createAreaSelect(area.preset);
+        var positionSelect = createAreaPositionSelect(area);
         var xInput = createTinyInput(area.x, 0);
         var yInput = createTinyInput(area.y, 0);
         var widthInput = createTinyInput(area.width, 20);
@@ -14706,6 +14961,17 @@
           renderLinks();
         };
 
+        // Lage aendern: verschiebt nur. Breite, Hoehe und Form bleiben, wie sie sind.
+        positionSelect.onchange = function () {
+          if (!positionSelect.value) return;
+          item.area = areaForPreset(positionSelect.value, item.area);
+          item.visible = true;
+          selectedLinkId = item.id;
+          syncAreaFields(item.area);
+          saveStoredLinks();
+          renderLinks();
+        };
+
         function markCustom() {
           areaSelect.value = 'custom';
         }
@@ -14730,6 +14996,9 @@
           saveStoredLinks();
           renderLinks();
         });
+        // Bewusst KEINE Gruppen-Schnellwahl im Einzel-Editor: Die Auswahl, welches
+        // Element man gerade bewegen will, sitzt ausschliesslich im Kopf der
+        // Gruppen-Ansicht (createLinkGroupCard).
         settings.appendChild(persistentField);
         // Nimmt die eingefaerbten Flaechen hinter dem Inhalt weg - z. B. die Kacheln
         // hinter Chat-Nachrichten. Wirkt im Overlay-Fenster, wo das Overlay laeuft.
@@ -14746,7 +15015,8 @@
           + 'Wirkt im Overlay-Fenster (nicht in der Vorschau dieser Seite). Text, Symbole und Emotes bleiben sichtbar.';
         settings.appendChild(transparentField);
         settings.appendChild(triggerField);
-        settings.appendChild(makeSettingLabel('Feld', areaSelect));
+        settings.appendChild(makeSettingLabel('Größe', areaSelect));
+        settings.appendChild(makeSettingLabel('Position', positionSelect));
         settings.appendChild(makeSettingLabel('X', xInput));
         settings.appendChild(makeSettingLabel('Y', yInput));
         settings.appendChild(makeSettingLabel('B', widthInput));
@@ -14884,13 +15154,9 @@
         });
         button.appendChild(enLbl);
         button.onclick = function () {
-          // Ist die Gruppe dieses Overlays gerade als kombinierte Vorschau offen,
-          // dann NUR dieses Fenster aktiv setzen (nach vorn holen) – ohne die
-          // Gruppen-Ansicht zu verlassen. Sonst normale Einzel-Auswahl.
-          if (selectedLinkGroup && linkGroupOf(item.id) === selectedLinkGroup) {
-            focusGroupMember(item.id);
-            return;
-          }
+          // Klick auf ein EINZELNES Overlay oeffnet immer direkt dieses Overlay -
+          // auch aus einer offenen Gruppen-Vorschau heraus. Innerhalb der Gruppe
+          // wechselt man ueber die Auswahl im Gruppenkopf.
           selectedLinkGroup = '';
           selectedLinkId = item.id;
           for (var index = 0; index < linkItems.length; index++) {
@@ -15479,6 +15745,7 @@
             manualVersion: 0,
             positionPreview: true,
             transparentBg: false,
+            crop: { left: 0, top: 0, right: 0, bottom: 0 },
             area: area,
             visible: true
           };
@@ -25266,6 +25533,39 @@
             c.style.color = on ? '#fff' : '#cdd8ea';
           });
         }
+        // Standard-User: EIN Eintrag mit dem reservierten Namen "*". Er greift fuer
+        // jeden Schreiber ohne eigenen Eintrag - mit dessen Profilbild - und hat im
+        // Editor dieselben Funktionen wie jeder normale User.
+        // Texte in der eingestellten Oberflaechensprache (de/en/es).
+        var erStdLang = (function () {
+          try {
+            var l = String(window.localStorage.getItem(UI_LANG_KEY) || 'de').toLowerCase();
+            return (l === 'en' || l === 'es') ? l : 'de';
+          } catch (e) { return 'de'; }
+        })();
+        function erStdText(de, en, es) { return erStdLang === 'en' ? en : (erStdLang === 'es' ? es : de); }
+        var erStdDisplay = erStdText('Standard (alle ohne Eintrag)', 'Standard (everyone without entry)', 'Estándar (todos sin entrada)');
+        var stdBtn = document.createElement('button');
+        stdBtn.type = 'button';
+        stdBtn.className = 'btn-primary';
+        stdBtn.textContent = (typeof erFind === 'function' && erFind('*'))
+          ? erStdText('★ Standard-User öffnen – gilt für alle ohne eigenen Eintrag',
+                      '★ Open standard user – applies to everyone without their own entry',
+                      '★ Abrir usuario estándar – vale para todos sin entrada propia')
+          : erStdText('★ Standard-User anlegen – gilt für alle ohne eigenen Eintrag',
+                      '★ Create standard user – applies to everyone without their own entry',
+                      '★ Crear usuario estándar – vale para todos sin entrada propia');
+        stdBtn.style.cssText = 'width:100%;box-sizing:border-box;font-size:13px;';
+        stdBtn.addEventListener('click', function () {
+          erAddUserByName('*', {
+            // Anzeigename in der aktuellen Sprache; ein erneuter Klick nach einem
+            // Sprachwechsel schreibt ihn in der neuen Sprache nach.
+            display: erStdDisplay,
+            avatarUrl: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="32" fill="%234f7dd6"/><text x="32" y="43" font-size="30" text-anchor="middle" fill="white">★</text></svg>'
+          });
+          close();
+        });
+        box.appendChild(stdBtn);
         box.appendChild(filterRow);
         updateChips();
 

@@ -1,5 +1,26 @@
 # FreakShow – Änderungen
 
+## 1.2.5
+
+### Neu
+
+- Roter Teppich: **Standard-User** ★ – ein Eintrag, der für alle Zuschauer ohne eigenen Eintrag gilt; es regnet automatisch deren eigenes Profilbild (Knopf im Hinzufügen-Fenster, dreisprachig)
+- **zentrale Anbieter-Tabelle** (`app/overlay-providers.json`): alle Anbieter-Sonderbehandlungen an einer Stelle – ein neuer Software-Hersteller ist nur noch ein Tabelleneintrag
+- **Vorschau-Proxy**: Anbieter mit Einbettungssperre (z. B. Voicemod) erscheinen jetzt auch in der Vorschau der Steuerseite, nicht nur im Overlay
+- Overlay-Gruppen wie bei den Notizen: Klick auf die Gruppe zeigt alle Mitglieder, rechts wählt man das Element, das man bewegen will; Klick auf ein einzelnes Overlay öffnet es direkt
+- **Alt + Ecke = Zuschneiden** bei Web-Overlays (wie in OBS); Ecken skalieren gleichmäßig ohne Verzerrung
+- Größe und Position als **zwei getrennte Felder**; neun Positionen (Ecken, Kanten, Mitte), die nur verschieben und nie die Form ändern
+
+### Korrigiert
+
+- Schalter „Hintergrund entfernen" wirkt jetzt auch bei Seiten im Dunkelmodus (z. B. chat.streamer.bot) – die dunkle Fläche kam vom Farbschema, nicht vom Seiteninhalt
+- kein dunkles Aufblitzen mehr beim Laden und bei Oberflächen-Umbauten des Overlays
+- chat.streamer.bot verbindet jetzt auch aus der Software heraus (der base64-Config-Block wird auf den Relay umgeschrieben)
+- Voicemod-Overlay im Overlay-Fenster einbettbar; keine sinnlosen Verbindungs-Parameter mehr an Cloud-Links
+- Vorschau spiegelt den Hintergrund-Schalter (an = durchsichtig, aus = wie der Anbieter liefert) und färbt das Feld nicht mehr ein
+- Aktionsleiste im Overlays-Tab wie bei den anderen Tabs (kein durchgehender Balken mehr)
+- Gruppen-Monitor hatte falsche Größe und Lage
+
 ## 1.2.4
 
 ### Neu

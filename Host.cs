@@ -443,10 +443,16 @@ internal sealed class OverlayForm : Form
   // ::before/::after muessen mit, weil Kacheln dort haeufig gezeichnet werden.
   var KEEP = ':not(.freakshow-keep-bg):not(.freakshow-keep-shadow)';
   var SEL = 'html body *' + KEEP;
-  var CSS = 'html,body{background:transparent !important;background-image:none !important;}'
+  // color-scheme MUSS zurueckgesetzt werden. Seiten im Dunkelmodus (chat.streamer.bot
+  // setzt class=dark samt color-scheme) bekommen vom Browser eine SCHWARZE Grundflaeche
+  // hinter dem Inhalt. Die stammt nicht aus dem Seiten-CSS, sondern von der Darstellung
+  // selbst - Hintergrundregeln allein erwischen sie deshalb nicht.
+  var CSS = 'html{color-scheme:normal !important;}'
+    + 'html,body{background:transparent !important;background-image:none !important;}'
     + SEL + '{background-color:transparent !important;box-shadow:none !important;}'
     + SEL + '::before,' + SEL + '::after{background-color:transparent !important;box-shadow:none !important;}';
   var wanted = null;
+  var appliedEarly = false;
 
   function apply(on) {
     try {
@@ -465,12 +471,43 @@ internal sealed class OverlayForm : Form
     } catch (e) {}
   }
 
+  // Kurzer Befund aus dem Overlay-Dokument. Fremde Seiten lassen sich von aussen
+  // nicht untersuchen, deshalb misst das Skript hier selbst nach und schickt das
+  // Ergebnis mit - so laesst sich ein gemeldeter Rest-Hintergrund zuordnen, statt
+  // ihn zu erraten.
+  function survey() {
+    try {
+      var cs = window.getComputedStyle(document.documentElement);
+      var bodyStyle = document.body ? window.getComputedStyle(document.body) : null;
+      var nodes = document.body ? document.body.querySelectorAll('*') : [];
+      var opaque = 0;
+      var images = 0;
+      for (var i = 0; i < nodes.length; i++) {
+        var st = window.getComputedStyle(nodes[i]);
+        var color = st.backgroundColor;
+        if (color && color !== 'transparent' && !/rgba\([^)]*,\s*0\s*\)/.test(color)) opaque++;
+        if (st.backgroundImage && st.backgroundImage !== 'none') images++;
+      }
+      return 'schema=' + (cs.colorScheme || '?') +
+        ';html=' + (cs.backgroundColor || '?') +
+        ';body=' + (bodyStyle ? bodyStyle.backgroundColor : '?') +
+        ';flaechen=' + opaque + '/' + nodes.length +
+        ';bilder=' + images +
+        ';frueh=' + (appliedEarly ? 'ja' : 'nein') +
+        ';name=' + (window.name || '-');
+    } catch (e) { return 'befund nicht moeglich'; }
+  }
+
   // Kurze Rueckmeldung an die Overlay-Seite, damit dort sichtbar ist, ob der
   // Schalter dieses Overlay wirklich erreicht hat.
   function report(on) {
     try {
       if (window.parent && window.parent !== window) {
-        window.parent.postMessage({ freakshowOverlay: 'background-ack', applied: on === true }, '*');
+        window.parent.postMessage({
+          freakshowOverlay: 'background-ack',
+          applied: on === true,
+          survey: survey()
+        }, '*');
       }
     } catch (e) {}
   }
@@ -481,14 +518,59 @@ internal sealed class OverlayForm : Form
     wanted = data.transparent === true;
     apply(wanted);
     report(wanted);
+    // Single-Page-Overlays bauen ihre Oberflaeche erst nach dem Laden auf. Ein
+    // spaeterer Befund zeigt den Zustand, den der Zuschauer wirklich sieht.
+    window.setTimeout(function () { report(wanted); }, 3000);
   }, false);
 
-  // Single-Page-Overlays bauen ihren Kopfbereich teilweise neu auf. Ein leichter
-  // Waechter setzt die Regel dann erneut - er laeuft nur, wenn sie gewuenscht ist.
+  // Der Wunsch steckt im Fensternamen, den die Overlay-Seite VOR dem Laden setzt.
+  // Dadurch sitzt die Regel schon beim allerersten Bild. Wuerde erst auf die
+  // Nachricht gewartet, waere bis dahin der dunkle Hintergrund der Seite zu sehen.
+  try {
+    if (String(window.name || '').indexOf('freakshow-overlay-nobg') >= 0) wanted = true;
+  } catch (e) {}
+
+  function applyWhenPossible() {
+    if (wanted !== true) return true;
+    if (!document.documentElement) return false;
+    apply(true);
+    if (document.getElementById(STYLE_ID)) {
+      appliedEarly = true;
+      return true;
+    }
+    return false;
+  }
+
+  if (!applyWhenPossible()) {
+    // Beim allerersten Aufruf existiert der Dokumentbaum teilweise noch nicht.
+    var earlyTimer = window.setInterval(function () {
+      if (applyWhenPossible()) window.clearInterval(earlyTimer);
+    }, 5);
+    document.addEventListener('readystatechange', applyWhenPossible);
+  }
+
+  // Single-Page-Overlays bauen ihren Kopfbereich im Betrieb neu auf und werfen die
+  // Regel dabei heraus. Ein Beobachter setzt sie im selben Moment zurueck - deshalb
+  // kein Wecker im Sekundentakt, der genau dazwischen ein dunkles Aufblitzen liesse.
   document.addEventListener('DOMContentLoaded', function () { if (wanted !== null) apply(wanted); });
-  window.setInterval(function () {
-    if (wanted === true && !document.getElementById(STYLE_ID)) apply(true);
-  }, 2000);
+
+  function watchHead() {
+    try {
+      if (!window.MutationObserver || !document.head || window.__freakshowHeadWatch) return;
+      window.__freakshowHeadWatch = new MutationObserver(function () {
+        if (wanted === true && !document.getElementById(STYLE_ID)) apply(true);
+      });
+      window.__freakshowHeadWatch.observe(document.head, { childList: true });
+    } catch (e) {}
+  }
+
+  if (!document.head) {
+    var headTimer = window.setInterval(function () {
+      if (document.head) { watchHead(); window.clearInterval(headTimer); }
+    }, 10);
+  } else {
+    watchHead();
+  }
 })();
 ";
 
@@ -515,15 +597,78 @@ internal sealed class OverlayForm : Form
     private bool twitchFrameHeaderRemoved;
     private int twitchDiagnosticsLogged;
 
+    // Liest die frameLock-Hosts aus der eingebetteten Anbieter-Tabelle. Faellt bei
+    // fehlender oder kaputter Tabelle auf die bekannten zwei Hosts zurueck, damit
+    // Twitch-Alertbox und Voicemod nie versehentlich brechen.
+    private static List<string> LoadFrameLockHosts()
+    {
+        List<string> hosts = new List<string>();
+        try
+        {
+            using (Stream stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("FreakShow.App.overlay-providers.json"))
+            {
+                if (stream != null)
+                {
+                    using (StreamReader reader = new StreamReader(stream, Encoding.UTF8))
+                    {
+                        JavaScriptSerializer serializer = new JavaScriptSerializer();
+                        Dictionary<string, object> table = serializer.Deserialize<Dictionary<string, object>>(reader.ReadToEnd());
+                        object providersValue;
+                        if (table != null && table.TryGetValue("providers", out providersValue))
+                        {
+                            IEnumerable providerList = providersValue as IEnumerable;
+                            if (providerList != null)
+                            {
+                                foreach (object entry in providerList)
+                                {
+                                    Dictionary<string, object> provider = entry as Dictionary<string, object>;
+                                    if (provider == null) continue;
+                                    object lockValue;
+                                    object hostValue;
+                                    bool locked = provider.TryGetValue("frameLock", out lockValue) && lockValue is bool && (bool)lockValue;
+                                    if (!locked || !provider.TryGetValue("host", out hostValue)) continue;
+                                    string host = Convert.ToString(hostValue);
+                                    if (!String.IsNullOrEmpty(host) && Regex.IsMatch(host, "^[a-z0-9.-]+$") && !hosts.Contains(host))
+                                    {
+                                        hosts.Add(host);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            HostLog.Write("Provider table could not be read; using built-in frame lock hosts: " + ex.Message);
+        }
+        if (hosts.Count == 0)
+        {
+            hosts.Add("dashboard.twitch.tv");
+            hosts.Add("overlay.voicemod.net");
+        }
+        return hosts;
+    }
+
     private async System.Threading.Tasks.Task EnableTwitchWidgetEmbedding()
     {
         try
         {
             web.CoreWebView2.GetDevToolsProtocolEventReceiver("Fetch.requestPaused").DevToolsProtocolEventReceived += OnTwitchResponsePaused;
-            await web.CoreWebView2.CallDevToolsProtocolMethodAsync(
-                "Fetch.enable",
-                "{\"patterns\":[{\"urlPattern\":\"https://dashboard.twitch.tv/*\",\"requestStage\":\"Response\"}]}");
-            HostLog.Write("Twitch widget embedding enabled (frame headers relaxed for dashboard.twitch.tv).");
+            // Welche Hosts ihren Einbettungs-Riegel verlieren, steht in der zentralen
+            // Anbieter-Tabelle (app/overlay-providers.json, frameLock=true). Ein neuer
+            // Anbieter braucht also nur einen Tabelleneintrag, keinen Code hier.
+            List<string> frameLockHosts = LoadFrameLockHosts();
+            StringBuilder patterns = new StringBuilder("{\"patterns\":[");
+            for (int i = 0; i < frameLockHosts.Count; i++)
+            {
+                if (i > 0) patterns.Append(',');
+                patterns.Append("{\"urlPattern\":\"https://").Append(frameLockHosts[i]).Append("/*\",\"requestStage\":\"Response\"}");
+            }
+            patterns.Append("]}");
+            await web.CoreWebView2.CallDevToolsProtocolMethodAsync("Fetch.enable", patterns.ToString());
+            HostLog.Write("Overlay embedding enabled (frame headers relaxed for " + String.Join(", ", frameLockHosts.ToArray()) + ").");
         }
         catch (Exception ex)
         {

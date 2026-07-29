@@ -1,0 +1,100 @@
+{
+  "_hinweis": "ZENTRALE ANBIETER-TABELLE. Ein neuer Software-Hersteller wird NUR hier eingetragen (plus Build). Overlay, Steuerseite, Bridge und Host lesen alle diese eine Datei.",
+  "_felder": {
+    "host": "Hostname ohne www (Pflicht)",
+    "path": "optionaler Pfad-Anfang, klein geschrieben",
+    "label": "Anzeigename in der Erkennung",
+    "profile": "Parameter-Profil fuer die Erkennung (none, address-port, address-port-password, chatrd)",
+    "connection": "Sonderbehandlung der Verbindung: direct = Link unveraendert lassen, config-base64 = base64-Config-Block umschreiben, none = nichts anhaengen",
+    "autoProfile": "erzwungenes Profil, wenn der Link auf Auto steht",
+    "cloud": "true = eigener Dienst, Verbindungs-Parameter werden entfernt",
+    "frameLock": "true = Anbieter verbietet Einbettung per Kopfzeile; der Riegel wird im Overlay-Fenster entfernt",
+    "previewBlocked": "true = Steuerseite laedt keine Live-Vorschau (normaler Browser kann den Riegel nicht entfernen)",
+    "relayKind": "Name unter /external-preview/<kind>, wenn die Bridge die Seite fuer entfernte Anzeigen ausliefert",
+    "relayUrl": "Originaladresse, die die Bridge dafuer laedt",
+    "relayBase": "base-href, damit relative Pfade der Seite weiter stimmen"
+  },
+  "cloudHosts": [
+    "streamlabs.com", "streamelements.com", "nightbot.tv", "kick.com", "twitch.tv",
+    "youtube.com", "youtu.be", "ko-fi.com", "streamlabs.link", "social-stream.ninja",
+    "onstream.gg", "lumiastream.com", "muxy.io", "crowdcontrol.live",
+    "tipeeestream.com", "donationalerts.com", "streamdps.com", "pretzel.rocks",
+    "voicemod.net"
+  ],
+  "providers": [
+    {
+      "id": "twitch-alertbox", "label": "Twitch Alert Box",
+      "host": "dashboard.twitch.tv", "path": "/widgets/alertbox",
+      "profile": "none", "connection": "direct", "cloud": true,
+      "frameLock": true, "previewBlocked": true
+    },
+    {
+      "id": "voicemod", "label": "Voicemod Overlay",
+      "host": "overlay.voicemod.net",
+      "profile": "none", "connection": "none", "cloud": true,
+      "frameLock": true, "previewBlocked": true,
+      "previewProxy": true, "proxyRootPaths": ["/assets/"]
+    },
+    {
+      "id": "streamerbot-chat", "label": "Streamer.bot Chat",
+      "host": "chat.streamer.bot",
+      "profile": "none", "connection": "config-base64"
+    },
+    {
+      "id": "chatrd", "label": "ChatRD",
+      "host": "vortisrd.github.io", "path": "/chatrd/",
+      "profile": "chatrd",
+      "relayKind": "chatrd",
+      "relayUrl": "https://vortisrd.github.io/chatrd/chat.html",
+      "relayBase": "https://vortisrd.github.io/chatrd/"
+    },
+    {
+      "id": "mustached-viewer-queue", "label": "MustachedManiac Viewer Queue",
+      "host": "mustachedmaniac.com", "path": "/widgets/viewer_queue/",
+      "profile": "address-port",
+      "relayKind": "mustached-viewer-queue",
+      "relayUrl": "https://mustachedmaniac.com/widgets/Viewer_Queue/",
+      "relayBase": "https://mustachedmaniac.com/widgets/Viewer_Queue/"
+    },
+    {
+      "id": "tawmae-giphy", "label": "Tawmae Giphy",
+      "host": "tawmae.xyz", "path": "/overlays/giphy-and-sb",
+      "profile": "address-port-password", "autoProfile": "address-port",
+      "relayKind": "tawmae-giphy",
+      "relayUrl": "https://tawmae.xyz/overlays/giphy-and-sb",
+      "relayBase": "https://tawmae.xyz/overlays/"
+    },
+    {
+      "id": "tawmae-better-shoutouts", "label": "Tawmae Better Shoutouts",
+      "host": "tawmae.xyz", "path": "/overlays/better-shoutouts",
+      "profile": "address-port-password",
+      "relayKind": "tawmae-better-shoutouts",
+      "relayUrl": "https://tawmae.xyz/overlays/better-shoutouts",
+      "relayBase": "https://tawmae.xyz/overlays/"
+    },
+    {
+      "id": "tawmae-dynamic-timers-v2", "label": "Tawmae Dynamic Timers",
+      "host": "tawmae.xyz", "path": "/overlays/dynamic-timers-v2",
+      "profile": "address-port-password",
+      "relayKind": "tawmae-dynamic-timers-v2",
+      "relayUrl": "https://tawmae.xyz/overlays/dynamic-timers-v2",
+      "relayBase": "https://tawmae.xyz/overlays/"
+    },
+    {
+      "id": "tawmae-spotify", "label": "Tawmae Spotify",
+      "host": "tawmae.xyz", "path": "/overlays/spotify-and-sb",
+      "profile": "address-port-password",
+      "relayKind": "tawmae-spotify",
+      "relayUrl": "https://tawmae.xyz/overlays/spotify-and-sb",
+      "relayBase": "https://tawmae.xyz/overlays/"
+    },
+    {
+      "id": "tawmae-giveaway", "label": "Tawmae Giveaway",
+      "host": "tawmae.xyz", "path": "/overlays/giveaway-overlay",
+      "profile": "address-port-password",
+      "relayKind": "tawmae-giveaway",
+      "relayUrl": "https://tawmae.xyz/overlays/giveaway-overlay",
+      "relayBase": "https://tawmae.xyz/overlays/"
+    }
+  ]
+}

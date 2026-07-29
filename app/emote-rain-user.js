@@ -165,14 +165,38 @@
     return (source === 'youtube' || source === 'kick' || source === 'twitch') ? source : '';
   }
 
+  // Standard-User: Eintrag mit dem reservierten Namen "*". Er greift fuer JEDEN
+  // Schreiber ohne eigenen Eintrag - mit dessen eigenem Profilbild und Namen.
+  var STANDARD_KEY = '*';
+
+  function standardConfigFor(login, source) {
+    var base = users[STANDARD_KEY];
+    if (!base || base.enabled === false) return null;
+    var copy = {};
+    for (var key in base) { if (base.hasOwnProperty(key)) copy[key] = base[key]; }
+    copy.name = login;                 // Profilbild und Anzeigename des Schreibers
+    copy.avatarUrl = '';
+    copy.userProfileUrl = '';
+    if (source) copy.platform = source; // Avatar von der Plattform der Nachricht
+    copy.triggerOn = false;             // Streamer.bot-Trigger bleibt Sache des Eintrags selbst
+    return copy;
+  }
+
   function onChat(payload) {
     var data = payload && payload.data ? payload.data : payload;
     var cu = chatUser(data);
-    if (!cu.login) return;
-    var cfg = users[cu.login];
-    if (!cfg || cfg.enabled === false) return;
+    if (!cu.login || cu.login === STANDARD_KEY) return;
     var source = chatPlatform(payload);
-    if (source && cfg.platform && platformName(cfg.platform) !== source) return;
+    var cfg = users[cu.login];
+    var isStandard = false;
+    if (!cfg) {
+      cfg = standardConfigFor(cu.login, source);
+      isStandard = true;
+      if (!cfg) return;
+    }
+    if (cfg.enabled === false) return;
+    // Eigener Eintrag: gewaehlte Plattform muss passen. Der Standard gilt ueberall.
+    if (!isStandard && source && cfg.platform && platformName(cfg.platform) !== source) return;
     var now = Date.now();
     var period = greetMs > 0 ? greetMs : COOLDOWN_MS;
     if (cooldown[cu.login] && (now - cooldown[cu.login]) < period) return;

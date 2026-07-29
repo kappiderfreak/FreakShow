@@ -35,8 +35,32 @@
     return out;
   }
 
+  // Zentrale Anbieter-Tabelle (app/overlay-providers.json), von der Steuerseite
+  // unter root.FreakShowProviders bereitgestellt. Neue Anbieter brauchen nur dort
+  // einen Eintrag; die fest verdrahteten Regeln darunter sind die Rueckfallebene.
+  function tableProvider(parsed) {
+    var table = root.FreakShowProviders;
+    if (!table || !table.providers) return null;
+    var host = cleanHost(parsed.url.hostname);
+    var path = String(parsed.url.pathname || '').toLowerCase();
+    for (var i = 0; i < table.providers.length; i++) {
+      var entry = table.providers[i];
+      if (!entry || !entry.host || !hostIs(host, entry.host)) continue;
+      if (entry.path && path.indexOf(String(entry.path).toLowerCase()) !== 0) continue;
+      return {
+        id: String(entry.id || entry.host),
+        label: String(entry.label || entry.id || entry.host),
+        profile: String(entry.profile || 'none'),
+        cloud: entry.cloud === true
+      };
+    }
+    return null;
+  }
+
   function knownProvider(parsed) {
     if (!parsed) return null;
+    var fromTable = tableProvider(parsed);
+    if (fromTable) return fromTable;
     var host = cleanHost(parsed.url.hostname);
     var path = String(parsed.url.pathname || '').toLowerCase();
 
