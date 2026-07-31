@@ -1,5 +1,14 @@
 # FreakShow – Änderungen
 
+## 1.2.6
+
+### Korrigiert
+
+- Text mit Farbverlauf zeigte dunkle Flecken: Der Schatten lag hinter den durchsichtigen Buchstaben und schien hindurch – er sitzt jetzt außen am Schriftbild (gilt auch für den Leucht-Stil)
+- die Punkte von Bubble-Position und Bubble-Textbereich werden beim Reinzoomen kleiner und sitzen sauber in der Ecke, genau wie die Punkte in allen anderen Tabs
+- diese Punkte folgen jetzt dem Farbschema statt fester Farben
+- das Einstellungsfenster schließt nur noch durch Klick daneben, Escape oder über das Symbol – es verschwand vorher schon, sobald die Maus es verließ
+
 ## 1.2.5
 
 ### Neu

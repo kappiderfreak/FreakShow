@@ -5091,7 +5091,9 @@
     .kappi-monitor-zoomed .image-rect-handle,
     .kappi-monitor-zoomed .cheat-mon-handle,
     .kappi-monitor-zoomed .preview-resize-handle,
-    .kappi-monitor-zoomed .link-card-resize-handle {
+    .kappi-monitor-zoomed .link-card-resize-handle,
+    .kappi-monitor-zoomed .video-bubble-position-handle,
+    .kappi-monitor-zoomed .video-bubble-text-handle {
       scale: var(--kappi-mz-inverse-scale, 1);
       transform-origin: center;
     }
@@ -5209,7 +5211,9 @@
     .image-rect-handle,
     .cheat-mon-handle,
     .monitor-preview-rect.current .preview-resize-handle,
-    .link-card-resize-handle {
+    .link-card-resize-handle,
+    .video-bubble-position-handle,
+    .video-bubble-text-handle {
       width: 17px;
       height: 17px;
       box-sizing: border-box;
@@ -5256,7 +5260,9 @@
     .kappi-monitor-zoomed .image-rect-handle.nw,
     .kappi-monitor-zoomed .cheat-mon-handle[data-handle="nw"],
     .kappi-monitor-zoomed .preview-resize-handle.handle-nw,
-    .kappi-monitor-zoomed .link-card-resize-handle.handle-nw {
+    .kappi-monitor-zoomed .link-card-resize-handle.handle-nw,
+    .kappi-monitor-zoomed .video-bubble-position-handle[data-corner="tl"],
+    .kappi-monitor-zoomed .video-bubble-text-handle[data-corner="tl"] {
       left: var(--kappi-mz-handle-offset, 0px);
       top: var(--kappi-mz-handle-offset, 0px);
     }
@@ -5265,7 +5271,9 @@
     .kappi-monitor-zoomed .image-rect-handle.ne,
     .kappi-monitor-zoomed .cheat-mon-handle[data-handle="ne"],
     .kappi-monitor-zoomed .preview-resize-handle.handle-ne,
-    .kappi-monitor-zoomed .link-card-resize-handle.handle-ne {
+    .kappi-monitor-zoomed .link-card-resize-handle.handle-ne,
+    .kappi-monitor-zoomed .video-bubble-position-handle[data-corner="tr"],
+    .kappi-monitor-zoomed .video-bubble-text-handle[data-corner="tr"] {
       right: var(--kappi-mz-handle-offset, 0px);
       top: var(--kappi-mz-handle-offset, 0px);
     }
@@ -5274,7 +5282,9 @@
     .kappi-monitor-zoomed .image-rect-handle.sw,
     .kappi-monitor-zoomed .cheat-mon-handle[data-handle="sw"],
     .kappi-monitor-zoomed .preview-resize-handle.handle-sw,
-    .kappi-monitor-zoomed .link-card-resize-handle.handle-sw {
+    .kappi-monitor-zoomed .link-card-resize-handle.handle-sw,
+    .kappi-monitor-zoomed .video-bubble-position-handle[data-corner="bl"],
+    .kappi-monitor-zoomed .video-bubble-text-handle[data-corner="bl"] {
       left: var(--kappi-mz-handle-offset, 0px);
       bottom: var(--kappi-mz-handle-offset, 0px);
     }
@@ -5283,7 +5293,9 @@
     .kappi-monitor-zoomed .image-rect-handle.se,
     .kappi-monitor-zoomed .cheat-mon-handle[data-handle="se"],
     .kappi-monitor-zoomed .preview-resize-handle.handle-se,
-    .kappi-monitor-zoomed .link-card-resize-handle.handle-se {
+    .kappi-monitor-zoomed .link-card-resize-handle.handle-se,
+    .kappi-monitor-zoomed .video-bubble-position-handle[data-corner="br"],
+    .kappi-monitor-zoomed .video-bubble-text-handle[data-corner="br"] {
       right: var(--kappi-mz-handle-offset, 0px);
       bottom: var(--kappi-mz-handle-offset, 0px);
     }
@@ -9417,9 +9429,19 @@
         var outlineEnabled = textStyle === 'outline' || !!(outlineControl && outlineControl.checked);
         textNode.style.webkitTextStroke = outlineEnabled ? Math.max(1, outlineSize * 0.55) + 'px ' + outlineColor : '0 transparent';
         textNode.style.paintOrder = outlineEnabled ? 'stroke fill' : 'normal';
-        textNode.style.textShadow = textStyle === 'glow'
-          ? '0 0 3px #fff, 0 0 8px rgba(167,98,255,.95), 0 0 15px rgba(108,74,255,.8)'
-          : '0 2px 7px rgba(0,0,0,.85)';
+        // Beim Farbverlauf schiene ein text-shadow durch die durchsichtigen
+        // Buchstaben hindurch (dunkle Flecken) - darum aussen als drop-shadow.
+        if (gradientControl && gradientControl.checked) {
+          textNode.style.textShadow = 'none';
+          textNode.style.filter = textStyle === 'glow'
+            ? 'drop-shadow(0 0 3px #fff) drop-shadow(0 0 8px rgba(167,98,255,.95)) drop-shadow(0 0 15px rgba(108,74,255,.8))'
+            : 'drop-shadow(0 2px 7px rgba(0,0,0,.85))';
+        } else {
+          textNode.style.filter = 'none';
+          textNode.style.textShadow = textStyle === 'glow'
+            ? '0 0 3px #fff, 0 0 8px rgba(167,98,255,.95), 0 0 15px rgba(108,74,255,.8)'
+            : '0 2px 7px rgba(0,0,0,.85)';
+        }
         textNode.style.webkitFontSmoothing = byId('video-bubble-antialias') && !byId('video-bubble-antialias').checked ? 'none' : 'antialiased';
         textNode.style.textRendering = byId('video-bubble-antialias') && !byId('video-bubble-antialias').checked ? 'optimizeSpeed' : 'geometricPrecision';
         textNode.style.writingMode = byId('video-bubble-vertical') && byId('video-bubble-vertical').checked ? 'vertical-rl' : 'horizontal-tb';
@@ -24355,28 +24377,10 @@
         document.addEventListener('keydown', function (ev) {
           if (ev.key === 'Escape' && isSettingsMenuOpen()) closeSettingsMenu();
         });
-        // Maus verlaesst das Menue -> nach kurzer Nachlaufzeit schliessen.
-        // (Nachlauf, damit kurzes Rauswackeln nicht sofort schliesst; und nicht
-        // schliessen, solange das Fenster keinen Fokus hat - z. B. offener
-        // "Bild auswaehlen"-Dialog.)
-        var leaveTimer = null;
-        function scheduleMenuClose() {
-          window.clearTimeout(leaveTimer);
-          leaveTimer = window.setTimeout(function () {
-            if (document.hasFocus && !document.hasFocus()) return;
-            closeSettingsMenu();
-          }, 600);
-        }
-        function cancelMenuClose() { window.clearTimeout(leaveTimer); leaveTimer = null; }
-        var menuEl = byId('workspace-view-settings');
-        if (menuEl) {
-          menuEl.addEventListener('mouseleave', function () { if (isSettingsMenuOpen()) scheduleMenuClose(); });
-          menuEl.addEventListener('mouseenter', cancelMenuClose);
-        }
-        if (sIcon) {
-          sIcon.addEventListener('mouseleave', function () { if (isSettingsMenuOpen()) scheduleMenuClose(); });
-          sIcon.addEventListener('mouseenter', cancelMenuClose);
-        }
+        // Das Menue schliesst AUSSCHLIESSLICH durch einen Klick daneben (oben),
+        // durch Escape oder ueber das Symbol. Bewusst KEIN Schliessen, nur weil die
+        // Maus das Fenster verlaesst - beim Ablesen oder Zielen auf einen Regler
+        // verschwand es sonst mitten in der Bedienung.
       })();
       if (byId('btn-link-panel-toggle')) byId('btn-link-panel-toggle').onclick = toggleLinkPanel;
       byId('btn-copy-log').onclick = copyLog;

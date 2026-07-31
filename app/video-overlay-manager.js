@@ -475,9 +475,21 @@
     var outlineSize = number(config.bubbleOutlineSize, style === 'outline' ? 2 : 1, 1, 12);
     textElement.style.webkitTextStroke = outlineEnabled ? outlineSize + 'px ' + outlineColor : '0 transparent';
     textElement.style.paintOrder = outlineEnabled ? 'stroke fill' : 'normal';
-    textElement.style.textShadow = style === 'glow'
-      ? '0 0 5px #fff, 0 0 13px rgba(167,98,255,.95), 0 0 25px rgba(108,74,255,.8)'
-      : '0 2px 7px rgba(0,0,0,.85)';
+    // Beim Farbverlauf ist die Schrift selbst durchsichtig (der Verlauf wird in die
+    // Buchstaben gelegt). Ein text-shadow laege HINTER den Buchstaben und schiene
+    // durch sie hindurch - das ergab dunkle Flecken im Text. Darum beim Verlauf
+    // stattdessen drop-shadow auf das fertige Schriftbild: gleicher Schatten, nur aussen.
+    if (config.bubbleGradientEnabled) {
+      textElement.style.textShadow = 'none';
+      textElement.style.filter = style === 'glow'
+        ? 'drop-shadow(0 0 5px #fff) drop-shadow(0 0 13px rgba(167,98,255,.95)) drop-shadow(0 0 25px rgba(108,74,255,.8))'
+        : 'drop-shadow(0 2px 7px rgba(0,0,0,.85))';
+    } else {
+      textElement.style.filter = 'none';
+      textElement.style.textShadow = style === 'glow'
+        ? '0 0 5px #fff, 0 0 13px rgba(167,98,255,.95), 0 0 25px rgba(108,74,255,.8)'
+        : '0 2px 7px rgba(0,0,0,.85)';
+    }
     textElement.style.webkitFontSmoothing = config.bubbleAntialias === false ? 'none' : 'antialiased';
     textElement.style.textRendering = config.bubbleAntialias === false ? 'optimizeSpeed' : 'geometricPrecision';
     textElement.style.writingMode = config.bubbleVertical ? 'vertical-rl' : 'horizontal-tb';
