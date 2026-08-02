@@ -5097,6 +5097,19 @@
       scale: var(--kappi-mz-inverse-scale, 1);
       transform-origin: center;
     }
+    /* Die beiden Bubble-Rahmen sind als EINZIGE stark abgerundet und haben eine
+       feste Rahmenstaerke. Beim Zoom wuerden Rundung und Rahmen mitwachsen,
+       waehrend die Punkte invers klein bleiben - dadurch sass ein Eckpunkt sichtbar
+       neben der Rundung statt auf ihr. Beides wird darum ebenfalls invers gerechnet
+       und bleibt optisch konstant, genau wie der Monitorrahmen (--kappi-mz-border). */
+    .kappi-monitor-zoomed #video-bubble-position-box {
+      border-width: calc(2px * var(--kappi-mz-inverse-scale, 1));
+      border-radius: calc(22px * var(--kappi-mz-inverse-scale, 1));
+    }
+    .kappi-monitor-zoomed #video-bubble-text-position-box {
+      border-width: calc(2px * var(--kappi-mz-inverse-scale, 1));
+      border-radius: calc(10px * var(--kappi-mz-inverse-scale, 1));
+    }
     /* Zwei Navigationsregler innerhalb des unveränderten Monitorrahmens:
        unten = links/rechts, rechts = oben/unten. Die Ebene liegt im Dokument,
        damit sie selbst nicht mit dem Monitorinhalt vergrößert wird. */

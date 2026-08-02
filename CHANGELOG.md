@@ -1,5 +1,14 @@
 # FreakShow – Änderungen
 
+## 1.2.7
+
+### Korrigiert
+
+- **Overlays schalteten sich von selbst an und aus.** Ursache: Die Streamer.bot-Verbindung konnte doppelt aufgebaut werden – der zuvor erzeugte Client lief weiter, jedes Ereignis kam dadurch zweimal an. Da ein Trigger *umschaltet*, hob die zweite Meldung die erste sofort wieder auf und das Overlay blitzte nur auf.
+- Die Zuhörer-Warteschlange wird nach dem Verbinden geleert; vorher wurden bei einem zweiten Verbindungsaufbau alle Zuhörer erneut angehängt (Ereignisse doppelt, auch bei nur einer Verbindung)
+- Trigger sind zusätzlich gegen doppelte Ereignisse abgesichert: dasselbe Ereignis wirkt innerhalb von 400 ms nur einmal und wird sonst protokolliert
+- die Eckpunkte der Bubble-Rahmen sitzen beim Reinzoomen wieder auf der Kante – Rundung und Rahmenstärke werden jetzt wie beim Monitorrahmen mitgerechnet
+
 ## 1.2.6
 
 ### Korrigiert

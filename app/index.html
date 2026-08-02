@@ -53,8 +53,15 @@
                         realClient.subscribe(queuedSubscriptions[i]);
                     }
                 }
+                var attachedCount = queuedListeners.length;
+                // WICHTIG: Die Warteschlange danach LEEREN. Wird der Client ein
+                // zweites Mal aufgebaut, wuerden sonst alle Zuhoerer erneut
+                // angehaengt - jedes Ereignis kaeme doppelt an, und ein Trigger
+                // (der umschaltet) haette sich sofort selbst wieder aufgehoben.
+                queuedListeners.length = 0;
+                queuedSubscriptions.length = 0;
                 window.client = realClient;
-                console.log('[Kappi Overlay] Streamer.bot client ready; listeners attached:', queuedListeners.length);
+                console.log('[Kappi Overlay] Streamer.bot client ready; listeners attached:', attachedCount);
             };
         })();
     </script>
@@ -147,7 +154,17 @@
                 console.log('[Kappi Overlay] Streamer.bot client gestartet (' + overlayConfig.host + ':' + overlayConfig.port + ')');
             }
 
+            // Nur EIN Client. Der Notfallpfad unten laedt das Skript mit
+            // Wiederholversuchen; ohne diese Sperre konnte startClient() mehrfach
+            // laufen, der alte Client lief weiter (autoReconnect) und jedes Ereignis
+            // kam doppelt an.
+            var clientStarted = false;
             function startClient() {
+                if (clientStarted) {
+                    console.warn('[Kappi Overlay] Streamer.bot-Client laeuft bereits - zweiter Start uebersprungen.');
+                    return;
+                }
+                clientStarted = true;
                 // Der localStorage von WebView2 (Overlay) und externem Browser
                 // (Einstellungsseite) ist getrennt. Deshalb ZUERST die geteilte
                 // Config von der Bridge holen - so uebernimmt das Overlay genau das,
@@ -217,7 +234,7 @@
         }, 800);
     </script>
     <script src="/app/giphy-sb-local-overlay.js"></script>
-    <script src="/app/external-overlay-links.js?v=20260727-providers"></script>
+    <script src="/app/external-overlay-links.js?v=20260731-trigger"></script>
     <script src="/app/kappi-markdown.js?v=20260712-md1"></script>
     <script src="/app/endgame-cheatsheet.js?v=20260725-note-event-vars1"></script>
     <!-- Beispiele für dedizierte Trigger-Dateien (bleiben wie gehabt) -->

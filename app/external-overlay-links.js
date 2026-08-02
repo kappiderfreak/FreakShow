@@ -566,16 +566,29 @@
     return data || {};
   }
 
+  // Ein Trigger SCHALTET UM. Kommt dasselbe Ereignis doppelt an (z. B. weil der
+  // Streamer.bot-Client kurz zweimal aufgebaut wurde), hoebe die zweite Umschaltung
+  // die erste sofort wieder auf - das Overlay blitzte nur auf. Darum wirkt derselbe
+  // Trigger innerhalb dieser Zeitspanne nur EINMAL.
+  var TRIGGER_DEBOUNCE_MS = 400;
+  var lastTriggerAt = {};
+
   function onCustom(payload) {
     var data = customEventData(payload);
     var configured = lastConfiguredLinks.length ? lastConfiguredLinks : getLinks();
     var changed = false;
+    var now = Date.now();
     for (var i = 0; i < configured.length; i++) {
       var item = configured[i];
       if (!item || !item.triggerOn || !item.trigger) continue;
       if (data[item.trigger] === true) {
         var id = String(item.id || item.url || '');
         if (!id) continue;
+        if (lastTriggerAt[id] && (now - lastTriggerAt[id]) < TRIGGER_DEBOUNCE_MS) {
+          log('Trigger „' + item.trigger + '" kam doppelt - zweites Ereignis ignoriert.', item);
+          continue;
+        }
+        lastTriggerAt[id] = now;
         var currentlyShown = Object.prototype.hasOwnProperty.call(trigState, id)
           ? trigState[id] === true
           : item.enabled !== false;
