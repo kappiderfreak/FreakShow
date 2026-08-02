@@ -1,5 +1,13 @@
 # FreakShow – Änderungen
 
+## 1.2.8
+
+### Korrigiert – die gemeldeten Overlay-Fehler sind damit behoben
+
+- **Overlays blitzten beim Umschalten auf.** Beim Aus- oder Einschalten eines Overlays wurde die komplette Anzeigefläche geleert und alles neu aufgebaut – alle übrigen luden ihre Seite erneut. Jetzt wird nur noch geändert, was sich wirklich geändert hat; unveränderte Overlays bleiben unangetastet stehen.
+- Die Stapelreihenfolge läuft dafür über die Ebenen-Nummer statt über die Reihenfolge im Seitenbaum (ein verschobenes Fenster hätte sonst trotzdem neu geladen)
+- **Der Schalter sprang hin und her.** Er zeigt den tatsächlichen Zustand aus dem Overlay, das seine Einstellungen aber nur einmal pro Sekunde holt – nach einem Klick meldete es kurz noch den alten Stand. Jetzt hat der Klick Vorrang, bis das Overlay ihn bestätigt hat.
+
 ## 1.2.7
 
 ### Korrigiert

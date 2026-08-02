@@ -33,6 +33,9 @@
   var backgroundFrames = [];
   var backgroundAckById = {};
   var backgroundSurveyById = {};
+  // Welches Fenster zu welchem Overlay gehoert - Grundlage dafuer, beim Neuzeichnen
+  // nur die wirklich geaenderten Fenster anzufassen.
+  var activeFrames = {};
   var lastRuntimeReportSignature = '';
   var lastRuntimeReportAt = 0;
   var positionThemeAccent = '#4f7dd6';
@@ -921,19 +924,40 @@
     return frame;
   }
 
-  function signatureFor(links) {
+  // Groesse der Anzeigeflaeche. Aendert sie sich, muessen ALLE Fenster neu
+  // vermessen werden - alles andere ist Sache des einzelnen Overlays.
+  function geometryKey() {
     var sourceWidth = bridgeMonitorWidth || window.innerWidth || 1920;
     var sourceHeight = bridgeMonitorHeight || window.innerHeight || 1080;
-    var parts = [
-      'geometry|' + sourceWidth + 'x' + sourceHeight +
-      '|' + (window.innerWidth || sourceWidth) + 'x' + (window.innerHeight || sourceHeight)
-    ];
-    for (var i = 0; i < links.length; i++) {
-      parts.push(links[i].id + '|' + links[i].name + '|' + applyConnection(links[i]) +
-        '|bg' + (links[i].transparentBg === true ? '1' : '0') +
-        '|crop' + JSON.stringify(normalizeCrop(links[i].crop)) +
-        '|' + JSON.stringify(normalizeArea(links[i].area)));
+    return 'geometry|' + sourceWidth + 'x' + sourceHeight +
+      '|' + (window.innerWidth || sourceWidth) + 'x' + (window.innerHeight || sourceHeight);
+  }
+
+  // Alles, was DIESES eine Overlay ausmacht. Nur wenn sich hier etwas aendert,
+  // muss sein Fenster neu aufgebaut werden.
+  function linkPartSignature(link) {
+    return link.id + '|' + link.name + '|' + applyConnection(link) +
+      '|bg' + (link.transparentBg === true ? '1' : '0') +
+      '|crop' + JSON.stringify(normalizeCrop(link.crop)) +
+      '|' + JSON.stringify(normalizeArea(link.area));
+  }
+
+  // Alle Fenster verwerfen - nur fuer die wenigen Faelle, in denen ein echtes
+  // Neuladen gewollt ist (z. B. Internet kam zurueck).
+  function dropAllFrames() {
+    for (var id in activeFrames) {
+      if (!Object.prototype.hasOwnProperty.call(activeFrames, id)) continue;
+      var frame = activeFrames[id].frame;
+      if (frame && frame.parentNode) frame.parentNode.removeChild(frame);
     }
+    activeFrames = {};
+    backgroundFrames = [];
+    lastSignature = '';
+  }
+
+  function signatureFor(links) {
+    var parts = [geometryKey()];
+    for (var i = 0; i < links.length; i++) parts.push(linkPartSignature(links[i]));
     return parts.join('\n');
   }
 
@@ -957,12 +981,43 @@
     if (!force && signature === lastSignature) return;
     lastSignature = signature;
 
+    // NUR aendern, was sich wirklich geaendert hat. Frueher wurde die ganze Ebene
+    // geleert und alles neu gebaut - beim Aus- oder Einschalten EINES Overlays
+    // luden dadurch ALLE anderen ihre Seite neu und blitzten sichtbar auf.
+    // Unveraenderte Fenster bleiben jetzt unangetastet stehen.
+    // WICHTIG: Ein bestehendes iframe darf im Baum NICHT verschoben werden - das
+    // laedt es neu. Die Stapelreihenfolge kommt deshalb ueber z-index, nicht ueber
+    // die Reihenfolge im Baum.
     var layer = ensureLayer();
-    layer.innerHTML = '';
+    var geo = geometryKey();
+    var stillThere = {};
     backgroundFrames = [];
 
     for (var i = 0; i < links.length; i++) {
-      layer.appendChild(makeFrame(links[i]));
+      var link = links[i];
+      var id = String(link.id || link.url || '');
+      var sig = geo + '|' + linkPartSignature(link);
+      var known = activeFrames[id];
+      var keep = known && known.signature === sig && known.frame.parentNode === layer;
+      if (keep) {
+        known.frame.style.zIndex = String(1000 - i);
+        backgroundFrames.push({ id: id, frame: known.frame });
+      } else {
+        if (known && known.frame.parentNode) known.frame.parentNode.removeChild(known.frame);
+        var frame = makeFrame(link);          // traegt sich selbst in backgroundFrames ein
+        frame.style.zIndex = String(1000 - i);
+        layer.appendChild(frame);
+        activeFrames[id] = { signature: sig, frame: frame };
+      }
+      stillThere[id] = true;
+    }
+
+    // Nicht mehr sichtbare Overlays entfernen.
+    for (var gone in activeFrames) {
+      if (!Object.prototype.hasOwnProperty.call(activeFrames, gone) || stillThere[gone]) continue;
+      if (activeFrames[gone].frame.parentNode) activeFrames[gone].frame.parentNode.removeChild(activeFrames[gone].frame);
+      delete activeFrames[gone];
+      delete backgroundAckById[gone];
     }
 
     log('Loaded external overlay link(s).', links);
@@ -995,7 +1050,10 @@
       if (!netKnownGood) {
         netKnownGood = true;
         log('Internet erreichbar - lade externe Overlay-Links neu.');
-        render(true);   // Frames neu laden, jetzt klappt es
+        // Hier ist ein ECHTES Neuladen gewollt: Die Fenster sind ins Leere
+        // geladen, solange das Netz fehlte. Darum ausnahmsweise alle verwerfen.
+        dropAllFrames();
+        render(true);
       }
       stopNetProbe();
     }).catch(function () {
@@ -1018,7 +1076,8 @@
   });
 
   window.kappiExternalOverlays = {
-    reload: function () { render(true); },
+    // Bewusstes Neuladen von aussen: hier sollen die Fenster wirklich neu laden.
+    reload: function () { dropAllFrames(); render(true); },
     status: function () {
       return {
         active: true,

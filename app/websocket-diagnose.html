@@ -8250,6 +8250,7 @@
             items[i].enabled = !!on;
             items[i].manualVersion = (parseInt(items[i].manualVersion || 0, 10) || 0) + 1;
             delete items[i].runtimeVisible;
+            markLinkManual(items[i].id);
             changed++;
           }
         }
@@ -12300,6 +12301,13 @@
         } catch (err) {}
       }
 
+      // Bis wann ein manueller Klick Vorrang vor der Laufzeitmeldung hat (je Overlay).
+      var linkManualUntil = {};
+      var LINK_MANUAL_HOLD_MS = 3000;
+      function markLinkManual(id) {
+        if (id) linkManualUntil[String(id)] = Date.now() + LINK_MANUAL_HOLD_MS;
+      }
+
       var externalLinkRuntimePollBusy = false;
       function pollExternalLinkRuntime() {
         if (externalLinkRuntimePollBusy || typeof XMLHttpRequest === 'undefined') return;
@@ -12319,11 +12327,23 @@
                 if (runtimeItems[i] && runtimeItems[i].id) runtimeById[String(runtimeItems[i].id)] = !!runtimeItems[i].visible;
               }
               var changed = false;
+              var nowMs = Date.now();
               for (var j = 0; j < linkItems.length; j++) {
                 var id = String(linkItems[j].id || '');
                 var hasRuntime = Object.prototype.hasOwnProperty.call(runtimeById, id);
                 var next = hasRuntime ? runtimeById[id] : null;
                 var hadRuntime = typeof linkItems[j].runtimeVisible === 'boolean';
+                // Nach einem Klick meldet das Overlay noch kurz den ALTEN Zustand
+                // (es pollt im Sekundentakt). Ohne diese Sperre sprang der Schalter
+                // dadurch zurueck und gleich wieder vor. Solange der Wunsch noch
+                // nicht bestaetigt ist, gilt der Klick.
+                if (linkManualUntil[id] && nowMs < linkManualUntil[id]) {
+                  if (hasRuntime && next === (linkItems[j].enabled !== false)) {
+                    delete linkManualUntil[id];   // Overlay hat den Klick uebernommen
+                  } else {
+                    continue;                      // bis dahin nicht dazwischenfunken
+                  }
+                }
                 if (hasRuntime) {
                   if (!hadRuntime || linkItems[j].runtimeVisible !== next) {
                     linkItems[j].runtimeVisible = next;
@@ -15182,6 +15202,7 @@
           item.enabled = enCb.checked;
           item.manualVersion = (parseInt(item.manualVersion || 0, 10) || 0) + 1;
           delete item.runtimeVisible;
+          markLinkManual(item.id);
           enLbl.classList.toggle('switch-on', enCb.checked);
           saveStoredLinks();
           renderLinks();
