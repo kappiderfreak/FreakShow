@@ -615,6 +615,12 @@
 
   function reportRuntimeState(configured, visible) {
     if (typeof XMLHttpRequest === 'undefined' || runtimeReportInFlight) return;
+    // Die Ausgabe fuer OBS (/freakshow) darf NICHT berichten. Sie zeigt Web-Overlays
+    // bewusst nicht an und wuerde deshalb "nicht sichtbar" melden - und damit die
+    // Meldung des echten Overlay-Fensters ueberschreiben. In der Steuerseite standen
+    // die Schalter dann auf AUS, obwohl das Overlay laeuft, und sprangen nach einem
+    // Klick wieder zurueck. Nur das echte Overlay-Fenster meldet seinen Zustand.
+    if (isOutputViewer) return;
     var visibleById = {};
     var items = [];
     var i;

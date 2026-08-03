@@ -1,5 +1,16 @@
 # FreakShow – Änderungen
 
+## 1.2.9
+
+### Neu
+
+- **Getrennte Ausgaben für mehrere Bildschirme:** je Bereich (Videos, Bilder, Notizen, Roter Teppich) eine eigene Adresse mit Kopieren-Knopf in den Einstellungen unter „FreakShow". In OBS als getrennte Browserquellen eintragen – so bleibt z. B. der Chat auf dem zweiten Monitor, während Alerts im Stream laufen
+- mehrere Bereiche lassen sich verbinden (`?only=videos,images`); ohne Zusatz bleibt alles wie bisher, bestehende OBS-Quellen sind unberührt
+
+### Korrigiert
+
+- **Overlay-Schalter zeigten „Aus", obwohl die Overlays liefen, und sprangen nach einem Klick zurück.** Die FreakShow-Ausgabe meldete ihren Zustand an dieselbe Stelle wie das echte Overlay-Fenster; da sie Web-Overlays bewusst nicht anzeigt, überschrieb sie die richtige Meldung mit „nicht sichtbar". Jetzt meldet nur noch das Overlay-Fenster.
+
 ## 1.2.8
 
 ### Korrigiert – die gemeldeten Overlay-Fehler sind damit behoben

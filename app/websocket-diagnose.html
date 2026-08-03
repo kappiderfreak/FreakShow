@@ -7412,6 +7412,11 @@
                 <button type="button" id="settings-output-open" class="btn-success" data-i18n="settings.outputOpen">Öffnen</button>
                 <button type="button" id="settings-output-sound-test" class="btn-muted" data-i18n="settings.outputSoundTest">Ton testen</button>
               </div>
+              <!-- Getrennte Ausgaben: je Bereich eine eigene Adresse fuer OBS. So laesst
+                   sich bestimmen, was im Stream landet und was nur auf dem eigenen
+                   Bildschirm bleibt (z. B. Notizen nur fuer dich). -->
+              <p class="settings-hint" style="margin:12px 0 4px" id="settings-output-parts-hint">Getrennte Ausgaben – je Bereich eine eigene Adresse für OBS:</p>
+              <div id="settings-output-parts" class="settings-output-parts"></div>
               <p class="settings-hint" data-i18n="settings.outputScopeHint">Übertragen werden: Videos, Bilder, Notizen und der Rote Teppich. NICHT enthalten sind Web-Overlays (HTML-Links) – fremde Seiten wie die Twitch-Alertbox verbieten die Einbettung. Diese in OBS als eigene Browserquelle hinzufügen.</p>
               <p id="settings-output-status" class="settings-hint" data-i18n="settings.outputReady">FreakShow zuerst öffnen, dann den Ton testen. Falls Chrome den Ton blockiert, einmal in die geöffnete FreakShow-Seite klicken.</p>
             </div>
@@ -17723,6 +17728,57 @@
         var bridgeOrigin = String(window.BRIDGE_ORIGIN || window.location.origin || '').replace(/\/+$/, '');
         var outputUrl = bridgeOrigin + '/freakshow';
         urlField.value = outputUrl;
+
+        // Je Bereich eine eigene Ausgabe-Adresse. Ohne Zusatz bleibt alles wie
+        // bisher; mit "?only=..." zeigt die Seite NUR diesen Bereich.
+        (function buildOutputParts() {
+          var host = byId('settings-output-parts');
+          var hint = byId('settings-output-parts-hint');
+          if (!host) return;
+          if (hint) {
+            hint.textContent = outputSettingsText(
+              'Getrennte Ausgaben – je Bereich eine eigene Adresse für OBS:',
+              'Separate outputs – one address per area for OBS:',
+              'Salidas separadas: una dirección por área para OBS:');
+          }
+          var areas = [
+            ['videos', outputSettingsText('Videos', 'Videos', 'Vídeos')],
+            ['images', outputSettingsText('Bilder', 'Images', 'Imágenes')],
+            ['notes', outputSettingsText('Notizen', 'Notes', 'Notas')],
+            ['carpet', outputSettingsText('Roter Teppich', 'Red Carpet', 'Alfombra Roja')]
+          ];
+          host.innerHTML = '';
+          for (var i = 0; i < areas.length; i++) {
+            (function (key, label) {
+              var row = document.createElement('div');
+              var name = document.createElement('span');
+              var field = document.createElement('input');
+              var copy = document.createElement('button');
+              var url = outputUrl + '?only=' + key;
+              row.className = 'settings-row';
+              row.style.cssText = 'flex-wrap:wrap; margin-top:6px';
+              name.textContent = label;
+              name.style.cssText = 'flex:0 0 120px; min-width:90px';
+              field.type = 'text'; field.readOnly = true; field.value = url;
+              field.setAttribute('aria-label', label);
+              field.style.cssText = 'flex:1 1 240px; min-width:0';
+              copy.type = 'button'; copy.className = 'btn-muted';
+              copy.textContent = outputSettingsText('Kopieren', 'Copy', 'Copiar');
+              copy.addEventListener('click', function () {
+                copyText(url, function (ok) {
+                  copy.textContent = ok
+                    ? outputSettingsText('Kopiert ✓', 'Copied ✓', 'Copiado ✓')
+                    : outputSettingsText('Bitte manuell', 'Copy manually', 'Cópialo manualmente');
+                  window.setTimeout(function () {
+                    copy.textContent = outputSettingsText('Kopieren', 'Copy', 'Copiar');
+                  }, 2500);
+                });
+              });
+              row.appendChild(name); row.appendChild(field); row.appendChild(copy);
+              host.appendChild(row);
+            })(areas[i][0], areas[i][1]);
+          }
+        })();
 
         copyButton.addEventListener('click', function () {
           copyText(outputUrl, function (ok) {

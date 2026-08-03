@@ -6,6 +6,10 @@
  */
 (function () {
   'use strict';
+  // Ausgabe-Filter (siehe index.html): Ist diese Kategorie fuer die aufrufende
+  // Ausgabe nicht freigegeben, macht dieses Modul gar nichts.
+  if (window.__KAPPI_IMAGE_OVERLAYS_ACTIVE__) return;
+  window.__KAPPI_IMAGE_OVERLAYS_ACTIVE__ = true;
 
   var BRIDGE = location.origin + '/image-overlays';
   var LAYER_ID = 'kappi-image-overlays';

@@ -66,6 +66,45 @@
         })();
     </script>
 
+    <!-- Ausgabe-Filter fuer mehrere Bildschirme/Quellen.
+         Ohne "only" laeuft alles wie bisher. Mit z. B. ?only=videos,images zeigt
+         diese Seite NUR diese Bereiche - so kann man in OBS mehrere getrennte
+         Quellen einrichten und selbst bestimmen, was im Stream landet und was nur
+         auf dem eigenen Bildschirm bleibt.
+         Umsetzung ohne Eingriff in die Module: Jedes Modul steigt aus, wenn sein
+         Waechter schon gesetzt ist - den setzen wir hier vorab fuer alles, was
+         nicht freigegeben ist. -->
+    <script>
+        (function () {
+            var only = '';
+            try {
+                var m = /[?&]only=([^&]*)/.exec(String(window.location.search || ''));
+                if (m) only = decodeURIComponent(m[1] || '').toLowerCase();
+            } catch (e) {}
+            if (!only) return;
+            var allowed = {};
+            var parts = only.split(',');
+            for (var i = 0; i < parts.length; i++) {
+                var key = parts[i].replace(/^\s+|\s+$/g, '');
+                if (key) allowed[key] = true;
+            }
+            var GUARDS = {
+                videos:   ['__KAPPI_VIDEO_OVERLAY_MANAGER_ACTIVE__'],
+                images:   ['__KAPPI_IMAGE_OVERLAYS_ACTIVE__'],
+                notes:    ['__KAPPI_CHEATSHEET_ACTIVE__'],
+                overlays: ['__KAPPI_EXTERNAL_OVERLAYS_ACTIVE__'],
+                carpet:   ['__KAPPI_EMOTE_RAIN_USER_ACTIVE__', '__KAPPI_EMOTE_RAIN_ACTIVE__']
+            };
+            var blocked = [];
+            for (var name in GUARDS) {
+                if (!Object.prototype.hasOwnProperty.call(GUARDS, name) || allowed[name]) continue;
+                for (var g = 0; g < GUARDS[name].length; g++) window[GUARDS[name][g]] = true;
+                blocked.push(name);
+            }
+            console.log('[Kappi Overlay] Ausgabe-Filter aktiv - gezeigt:', only, '| ausgeblendet:', blocked.join(', ') || '-');
+        })();
+    </script>
+
     <!-- DO NOT REMOVE -->
     <!-- Streamer.bot WebSocket configuration.
          Bevorzugt die LOKALE Client-Bibliothek (kein Internet noetig, LAN reicht).
@@ -212,7 +251,7 @@
     <script src="/app/emote-rain-anim.js?v=20260710-shapes2"></script>
     <script src="/app/emote-rain-user.js?v=20260727-standard"></script>
     <script src="/app/overlay-layers.js?v=20260710-endgame"></script>
-    <script src="/app/overlay-images.js?v=20260711-imgtrigger"></script>
+    <script src="/app/overlay-images.js?v=20260803-onlyfilter"></script>
     <script src="/app/overlay-heartbeat.js?v=20260716-viewport1"></script>
 
     <!-- Deine vorhandenen Module -->
@@ -234,7 +273,7 @@
         }, 800);
     </script>
     <script src="/app/giphy-sb-local-overlay.js"></script>
-    <script src="/app/external-overlay-links.js?v=20260803-nurAenderung"></script>
+    <script src="/app/external-overlay-links.js?v=20260803-outputreport"></script>
     <script src="/app/kappi-markdown.js?v=20260712-md1"></script>
     <script src="/app/endgame-cheatsheet.js?v=20260725-note-event-vars1"></script>
     <!-- Beispiele für dedizierte Trigger-Dateien (bleiben wie gehabt) -->

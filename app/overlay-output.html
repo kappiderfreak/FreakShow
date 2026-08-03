@@ -112,6 +112,16 @@
       var bridgeWasOffline = false;
       var reloadInProgress = false;
 
+      // Ausgabe-Filter durchreichen: /freakshow?only=videos,images zeigt nur diese
+      // Bereiche. So lassen sich in OBS mehrere getrennte Quellen einrichten -
+      // z. B. Alerts im Stream, Chat nur auf dem eigenen Bildschirm.
+      function outputOnlyParam() {
+        try {
+          var m = /[?&]only=([^&]*)/.exec(String(window.location.search || ''));
+          return m && m[1] ? '&only=' + m[1] : '';
+        } catch (e) { return ''; }
+      }
+
       function reloadOutput(reason) {
         if (reloadInProgress) return;
         reloadInProgress = true;
@@ -119,7 +129,7 @@
         if (!frame) { reloadInProgress = false; return; }
         try {
           // Frischer Ladevorgang mit Cache-Umgehung, damit wirklich alles neu kommt.
-          frame.src = '/content/index.html?outputViewer=1&reload=' + Date.now();
+          frame.src = '/content/index.html?outputViewer=1' + outputOnlyParam() + '&reload=' + Date.now();
         } catch (e) {}
         // Kurze Sperre, damit ein Neustart nicht mehrfach hintereinander ausloest.
         window.setTimeout(function () { reloadInProgress = false; }, 4000);
@@ -214,6 +224,14 @@
           if (audioContext && audioContext.state === 'suspended') audioContext.resume();
         } catch (e) {}
       }, { passive: true });
+
+      // Ist ein Filter gesetzt, den inneren Rahmen sofort damit laden.
+      (function () {
+        var extra = outputOnlyParam();
+        if (!extra) return;
+        var frame = document.getElementById('freakshow-output');
+        if (frame) frame.src = '/content/index.html?outputViewer=1' + extra;
+      })();
 
       pollSoundTest();
       window.setInterval(pollSoundTest, 350);
