@@ -7417,6 +7417,14 @@
                    Bildschirm bleibt (z. B. Notizen nur fuer dich). -->
               <p class="settings-hint" style="margin:12px 0 4px" id="settings-output-parts-hint">Getrennte Ausgaben – je Bereich eine eigene Adresse für OBS:</p>
               <div id="settings-output-parts" class="settings-output-parts"></div>
+
+              <!-- Wo wird welcher Bereich gezeigt: eigener Bildschirm (Gaming-PC),
+                   OBS-Ausgabe oder beides. Der lokale Teil wird beim Ausliefern der
+                   Overlay-Seite eingesetzt, wirkt also erst nach dem Neuladen. -->
+              <h3 style="margin-top:18px" id="settings-areas-title">Gaming-PC / OBS</h3>
+              <p class="settings-hint" id="settings-areas-hint">Pro Bereich festlegen, wo er erscheint: auf deinem Bildschirm, in der OBS-Ausgabe oder in beidem.</p>
+              <div id="settings-areas-table" class="settings-areas-table"></div>
+              <p class="settings-hint" id="settings-areas-note" style="margin-top:6px">Änderungen am eigenen Bildschirm greifen nach einem Neustart des Overlays.</p>
               <p class="settings-hint" data-i18n="settings.outputScopeHint">Übertragen werden: Videos, Bilder, Notizen und der Rote Teppich. NICHT enthalten sind Web-Overlays (HTML-Links) – fremde Seiten wie die Twitch-Alertbox verbieten die Einbettung. Diese in OBS als eigene Browserquelle hinzufügen.</p>
               <p id="settings-output-status" class="settings-hint" data-i18n="settings.outputReady">FreakShow zuerst öffnen, dann den Ton testen. Falls Chrome den Ton blockiert, einmal in die geöffnete FreakShow-Seite klicken.</p>
             </div>
@@ -12250,6 +12258,7 @@
               manualVersion: Math.max(0, parseInt(parsed[i].manualVersion || 0, 10) || 0),
               positionPreview: parsed[i].positionPreview === true,
               transparentBg: parsed[i].transparentBg === true,
+              muted: parsed[i].muted === true,
               crop: normalizeLinkCrop(parsed[i].crop),
               area: normalizeArea(parsed[i].area),
               visible: false
@@ -12280,6 +12289,7 @@
             manualVersion: Math.max(0, parseInt(linkItems[i].manualVersion || 0, 10) || 0),
             positionPreview: linkItems[i].positionPreview === true,
             transparentBg: linkItems[i].transparentBg === true,
+            muted: linkItems[i].muted === true,
             crop: normalizeLinkCrop(linkItems[i].crop),
             area: normalizeArea(linkItems[i].area)
           });
@@ -15074,6 +15084,20 @@
         transparentField.title = 'Blendet die eingefärbten Flächen hinter dem Inhalt aus, z. B. die Kacheln hinter Chat-Nachrichten. '
           + 'Wirkt im Overlay-Fenster (nicht in der Vorschau dieser Seite). Text, Symbole und Emotes bleiben sichtbar.';
         settings.appendChild(transparentField);
+
+        // Ton dieses Web-Overlays stummschalten (z. B. Alertbox ohne Sound).
+        var mutedField = makeSettingCheckbox('Ton aus', item.muted === true, function (event) {
+          item.muted = event.target.checked;
+          item.visible = true;
+          saveStoredLinks();
+          renderLinks();
+          log(event.target.checked
+            ? 'Ton für dieses Overlay ausgeschaltet.'
+            : 'Ton für dieses Overlay wieder eingeschaltet.', { name: item.name }, event.target.checked ? 'ok' : 'muted');
+        });
+        mutedField.title = 'Schaltet alle Töne dieses Web-Overlays stumm – auch die, die es später nachlädt. '
+          + 'Wirkt im Overlay-Fenster.';
+        settings.appendChild(mutedField);
         settings.appendChild(triggerField);
         settings.appendChild(makeSettingLabel('Größe', areaSelect));
         settings.appendChild(makeSettingLabel('Position', positionSelect));
@@ -17728,6 +17752,127 @@
         var bridgeOrigin = String(window.BRIDGE_ORIGIN || window.location.origin || '').replace(/\/+$/, '');
         var outputUrl = bridgeOrigin + '/freakshow';
         urlField.value = outputUrl;
+
+        // ===== Gaming-PC / OBS: pro Bereich festlegen, wo er erscheint =====
+        // Zwei Schalter je Bereich. "Gaming-PC" wirkt auf das Overlay-Fenster
+        // (die Bridge setzt den Filter beim Ausliefern ein -> erst nach Neustart),
+        // "OBS" blendet den Bereich in der Ausgabe aus.
+        (function buildAreaMatrix() {
+          var host = byId('settings-areas-table');
+          if (!host) return;
+          var AREAS = [
+            ['videos', outputSettingsText('Videos', 'Videos', 'Vídeos')],
+            ['images', outputSettingsText('Bilder', 'Images', 'Imágenes')],
+            ['notes', outputSettingsText('Notizen', 'Notes', 'Notas')],
+            ['overlays', outputSettingsText('Web-Overlays', 'Web overlays', 'Overlays web')],
+            ['carpet', outputSettingsText('Roter Teppich', 'Red Carpet', 'Alfombra Roja')]
+          ];
+          var titleEl = byId('settings-areas-title');
+          var hintEl = byId('settings-areas-hint');
+          var noteEl = byId('settings-areas-note');
+          if (titleEl) titleEl.textContent = outputSettingsText('Gaming-PC / OBS', 'Gaming PC / OBS', 'PC de juego / OBS');
+          if (hintEl) {
+            hintEl.textContent = outputSettingsText(
+              'Pro Bereich festlegen, wo er erscheint: auf deinem Bildschirm, in der OBS-Ausgabe oder in beidem.',
+              'Choose per area where it appears: on your own screen, in the OBS output, or both.',
+              'Elige por área dónde aparece: en tu pantalla, en la salida de OBS o en ambas.');
+          }
+          if (noteEl) {
+            noteEl.textContent = outputSettingsText(
+              'Änderungen am eigenen Bildschirm greifen nach einem Neustart des Overlays.',
+              'Changes for your own screen take effect after restarting the overlay.',
+              'Los cambios de tu pantalla se aplican tras reiniciar el overlay.');
+          }
+
+          var state = {};
+          var saveTimer = null;
+
+          function pushAreas() {
+            if (saveTimer) window.clearTimeout(saveTimer);
+            saveTimer = window.setTimeout(function () {
+              try {
+                var xhr = new XMLHttpRequest();
+                xhr.open('POST', bridgeOrigin + '/output-areas', true);
+                xhr.setRequestHeader('Content-Type', 'application/json');
+                if (window.BRIDGE_CONTROL_TOKEN) xhr.setRequestHeader('x-kappi-token', window.BRIDGE_CONTROL_TOKEN);
+                xhr.send(JSON.stringify({ areas: state }));
+              } catch (err) {}
+            }, 250);
+          }
+
+          function makeToggle(key, side) {
+            var label = document.createElement('label');
+            var input = document.createElement('input');
+            var track = document.createElement('span');
+            label.className = 'switch';
+            input.type = 'checkbox';
+            input.checked = !!(state[key] && state[key][side] !== false);
+            label.classList.toggle('switch-on', input.checked);
+            track.className = 'switch-track';
+            track.setAttribute('aria-hidden', 'true');
+            input.addEventListener('change', function () {
+              if (!state[key]) state[key] = { local: true, output: true };
+              state[key][side] = input.checked;
+              label.classList.toggle('switch-on', input.checked);
+              pushAreas();
+            });
+            label.appendChild(input);
+            label.appendChild(track);
+            return label;
+          }
+
+          function draw() {
+            host.innerHTML = '';
+            var head = document.createElement('div');
+            head.className = 'settings-row';
+            head.style.cssText = 'margin-top:4px; font-weight:700; opacity:.8';
+            var h0 = document.createElement('span'); h0.style.cssText = 'flex:1 1 160px; min-width:120px';
+            var h1 = document.createElement('span'); h1.style.cssText = 'flex:0 0 110px; text-align:center';
+            var h2 = document.createElement('span'); h2.style.cssText = 'flex:0 0 110px; text-align:center';
+            h0.textContent = outputSettingsText('Bereich', 'Area', 'Área');
+            h1.textContent = outputSettingsText('Gaming-PC', 'Gaming PC', 'PC de juego');
+            h2.textContent = 'OBS';
+            head.appendChild(h0); head.appendChild(h1); head.appendChild(h2);
+            host.appendChild(head);
+
+            for (var i = 0; i < AREAS.length; i++) {
+              (function (key, label) {
+                var row = document.createElement('div');
+                var name = document.createElement('span');
+                var cellLocal = document.createElement('span');
+                var cellOutput = document.createElement('span');
+                row.className = 'settings-row';
+                row.style.cssText = 'margin-top:2px';
+                name.textContent = label;
+                name.style.cssText = 'flex:1 1 160px; min-width:120px';
+                cellLocal.style.cssText = 'flex:0 0 110px; display:flex; justify-content:center';
+                cellOutput.style.cssText = 'flex:0 0 110px; display:flex; justify-content:center';
+                cellLocal.appendChild(makeToggle(key, 'local'));
+                cellOutput.appendChild(makeToggle(key, 'output'));
+                row.appendChild(name); row.appendChild(cellLocal); row.appendChild(cellOutput);
+                host.appendChild(row);
+              })(AREAS[i][0], AREAS[i][1]);
+            }
+          }
+
+          try {
+            var load = new XMLHttpRequest();
+            load.open('GET', bridgeOrigin + '/output-areas?t=' + Date.now(), true);
+            load.timeout = 2500;
+            load.onload = function () {
+              if (load.status >= 200 && load.status < 300) {
+                try {
+                  var parsed = JSON.parse(load.responseText || '{}');
+                  if (parsed && parsed.areas) state = parsed.areas;
+                } catch (err) {}
+              }
+              draw();
+            };
+            load.onerror = function () { draw(); };
+            load.ontimeout = load.onerror;
+            load.send();
+          } catch (err) { draw(); }
+        })();
 
         // Je Bereich eine eigene Ausgabe-Adresse. Ohne Zusatz bleibt alles wie
         // bisher; mit "?only=..." zeigt die Seite NUR diesen Bereich.

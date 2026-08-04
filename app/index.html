@@ -81,6 +81,13 @@
                 var m = /[?&]only=([^&]*)/.exec(String(window.location.search || ''));
                 if (m) only = decodeURIComponent(m[1] || '').toLowerCase();
             } catch (e) {}
+            // Kein "only" in der Adresse? Dann gilt die Einstellung dieses PCs, die
+            // die Bridge beim Ausliefern hier eingesetzt hat (leer = alles zeigen).
+            // Fuer die Ausgabe setzt die Bridge sie bewusst NICHT ein.
+            if (!only) {
+                var localFilter = '__LOCAL_AREA_FILTER__';
+                if (localFilter && localFilter.indexOf('_LOCAL_AREA_FILTER_') < 0) only = localFilter.toLowerCase();
+            }
             if (!only) return;
             var allowed = {};
             var parts = only.split(',');
@@ -273,7 +280,7 @@
         }, 800);
     </script>
     <script src="/app/giphy-sb-local-overlay.js"></script>
-    <script src="/app/external-overlay-links.js?v=20260803-outputreport"></script>
+    <script src="/app/external-overlay-links.js?v=20260804-mute"></script>
     <script src="/app/kappi-markdown.js?v=20260712-md1"></script>
     <script src="/app/endgame-cheatsheet.js?v=20260725-note-event-vars1"></script>
     <!-- Beispiele für dedizierte Trigger-Dateien (bleiben wie gehabt) -->

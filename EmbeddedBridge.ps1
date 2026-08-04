@@ -426,6 +426,8 @@ function Write-ExternalLinksJson {
       # Schalter "Hintergrund entfernen": Die Overlay-Seite reicht ihn an das
       # jeweilige iframe weiter, wo das Ausblenden stattfindet.
       transparentBg = if ($null -ne $item.transparentBg) { [bool]$item.transparentBg } else { $false }
+      # Ton dieses Web-Overlays stummschalten.
+      muted = if ($null -ne $item.muted) { [bool]$item.muted } else { $false }
       # Zuschnitt in Prozent je Seite (Alt beim Ziehen einer Ecke). Der Inhalt behaelt
       # seine Groesse, es wird nur abgeschnitten - wie in OBS.
       crop = [ordered]@{
@@ -2935,6 +2937,77 @@ function Get-PreviewProxyRootProvider {
   return $null
 }
 
+# ===== Wo wird welcher Bereich gezeigt: Gaming-PC, OBS oder beides =====
+# Je Bereich (videos, images, notes, overlays, carpet) zwei Schalter: "local"
+# (Overlay-Fenster auf diesem PC) und "output" (Ausgabe fuer OBS). Fehlt die
+# Datei, ist alles an - genau wie bisher.
+$script:OutputAreaNames = @('videos', 'images', 'notes', 'overlays', 'carpet')
+# NICHT als Parameter mit $PSScriptRoot-Vorgabe: Die Bridge laeuft eingebettet,
+# dort ist $PSScriptRoot leer und Join-Path wuerde beim Start abbrechen. Darum vom
+# Konfigurationsordner ableiten, den der Host ohnehin uebergibt.
+$script:OutputAreasPath = Join-Path (Split-Path -Parent $ExcludedAppsPath) 'output-areas.json'
+
+function Read-OutputAreasJson {
+  try {
+    if (Test-Path -LiteralPath $script:OutputAreasPath -PathType Leaf) {
+      $raw = Get-Content -LiteralPath $script:OutputAreasPath -Raw -ErrorAction Stop
+      [void]($raw | ConvertFrom-Json -ErrorAction Stop)
+      return $raw
+    }
+  } catch {}
+  $parts = @()
+  foreach ($name in $script:OutputAreaNames) { $parts += ('"' + $name + '":{"local":true,"output":true}') }
+  return '{"ok":true,"areas":{' + ($parts -join ',') + '}}'
+}
+
+function Write-OutputAreasJson {
+  param([object]$Incoming)
+  $parts = @()
+  foreach ($name in $script:OutputAreaNames) {
+    $entry = if ($null -ne $Incoming -and $null -ne $Incoming.areas) { $Incoming.areas.$name } else { $null }
+    $local = if ($null -ne $entry -and $null -ne $entry.local) { [bool]$entry.local } else { $true }
+    $output = if ($null -ne $entry -and $null -ne $entry.output) { [bool]$entry.output } else { $true }
+    $parts += ('"' + $name + '":{"local":' + $(if ($local) { 'true' } else { 'false' }) +
+               ',"output":' + $(if ($output) { 'true' } else { 'false' }) + '}')
+  }
+  $json = '{"ok":true,"areas":{' + ($parts -join ',') + '},"updatedAt":' + (Get-NowMilliseconds) + '}'
+  try {
+    $dir = Split-Path -Parent $script:OutputAreasPath
+    if ($dir -and -not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+    Set-Content -LiteralPath $script:OutputAreasPath -Value $json -Encoding UTF8
+  } catch {}
+  return $json
+}
+
+# Liste der Bereiche, die auf DIESEM PC gezeigt werden - als "only"-Wert.
+# Leerer Rueckgabewert = keine Einschraenkung (alles zeigen).
+function Get-LocalAreaFilter {
+  try {
+    $config = (Read-OutputAreasJson) | ConvertFrom-Json -ErrorAction Stop
+    $allowed = @()
+    foreach ($name in $script:OutputAreaNames) {
+      $entry = $config.areas.$name
+      if ($null -eq $entry -or $null -eq $entry.local -or [bool]$entry.local) { $allowed += $name }
+    }
+    if ($allowed.Count -eq $script:OutputAreaNames.Count) { return '' }
+    return ($allowed -join ',')
+  } catch { return '' }
+}
+
+# Wie Get-LocalAreaFilter, nur fuer die Ausgabe (OBS-Spalte der Einstellung).
+function Get-OutputAreaFilter {
+  try {
+    $config = (Read-OutputAreasJson) | ConvertFrom-Json -ErrorAction Stop
+    $allowed = @()
+    foreach ($name in $script:OutputAreaNames) {
+      $entry = $config.areas.$name
+      if ($null -eq $entry -or $null -eq $entry.output -or [bool]$entry.output) { $allowed += $name }
+    }
+    if ($allowed.Count -eq $script:OutputAreaNames.Count) { return '' }
+    return ($allowed -join ',')
+  } catch { return '' }
+}
+
 function Get-ContentTypeForPath {
   param([string]$Path)
   switch ([System.IO.Path]::GetExtension($Path).ToLowerInvariant()) {
@@ -3785,12 +3858,40 @@ while ($true) {
     # ausgeliefert, damit der relative Basis-Pfad (/content/) fuer die 82 Video-Module
     # und die Effekt-Skripte korrekt bleibt.
     if ($method -eq 'GET' -and ($path -eq '/freakshow' -or $path -eq '/freakshow.html' -or $path -eq '/output' -or $path -eq '/output.html' -or $path -eq '/overlay-output' -or $path -eq '/overlay-output.html')) {
-      Write-BinaryFileResponse -Stream $stream -Path (Join-Path $AppRoot 'overlay-output.html') -Headers $headers
+      # Der OBS-Teil der Einstellung wird hier eingesetzt. Steht in der Adresse
+      # bereits ein eigenes "only", hat dieses Vorrang (getrennte Ausgaben).
+      $outputHtml = [System.IO.File]::ReadAllText((Join-Path $AppRoot 'overlay-output.html'), [System.Text.Encoding]::UTF8)
+      $outputHtml = $outputHtml.Replace('__OUTPUT_AREA_FILTER__', (Escape-JsonString (Get-OutputAreaFilter)))
+      Write-HttpResponse -Stream $stream -StatusCode 200 -Reason 'OK' -Body $outputHtml -ContentType 'text/html; charset=utf-8'
       continue
     }
 
     if ($method -eq 'GET' -and ($path -eq '/content/index.html' -or $path.StartsWith('/content/index.html?', [System.StringComparison]::OrdinalIgnoreCase))) {
-      Write-BinaryFileResponse -Stream $stream -Path (Join-Path $AppRoot 'index.html') -Headers $headers
+      # Der Bereichs-Filter des GAMING-PCs wird hier eingesetzt - genau wie der
+      # Control-Token in der Steuerseite. Er kann nicht nachtraeglich geholt werden,
+      # weil er VOR den Modul-Skripten stehen muss. Fuer die Ausgabe (outputViewer)
+      # gilt er NICHT: dort entscheidet allein deren eigenes "only".
+      $indexHtml = [System.IO.File]::ReadAllText((Join-Path $AppRoot 'index.html'), [System.Text.Encoding]::UTF8)
+      $localOnly = ''
+      if ($rawUrl -notmatch 'outputViewer=1') { $localOnly = Get-LocalAreaFilter }
+      $indexHtml = $indexHtml.Replace('__LOCAL_AREA_FILTER__', (Escape-JsonString $localOnly))
+      Write-HttpResponse -Stream $stream -StatusCode 200 -Reason 'OK' -Body $indexHtml -ContentType 'text/html; charset=utf-8'
+      continue
+    }
+
+    if ($method -eq 'GET' -and ($path -eq '/output-areas' -or $path -eq '/overlay/output-areas')) {
+      Write-HttpResponse -Stream $stream -StatusCode 200 -Reason 'OK' -Body (Read-OutputAreasJson)
+      continue
+    }
+
+    if ($method -eq 'POST' -and ($path -eq '/output-areas' -or $path -eq '/overlay/output-areas')) {
+      $body = Read-RequestBody -Reader $reader -Length $contentLength
+      try {
+        $incoming = if ([string]::IsNullOrWhiteSpace($body)) { $null } else { $body | ConvertFrom-Json -ErrorAction Stop }
+        Write-HttpResponse -Stream $stream -StatusCode 200 -Reason 'OK' -Body (Write-OutputAreasJson $incoming)
+      } catch {
+        Write-HttpResponse -Stream $stream -StatusCode 400 -Reason 'Bad Request' -Body '{"ok":false,"error":"invalid json"}'
+      }
       continue
     }
 

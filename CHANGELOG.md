@@ -1,5 +1,18 @@
 # FreakShow – Änderungen
 
+## 1.3.0
+
+### Neu
+
+- **Gaming-PC / OBS:** Tabelle in den Einstellungen mit zwei Schaltern je Bereich (Videos, Bilder, Notizen, Web-Overlays, Roter Teppich) – jeder Bereich erscheint wahlweise nur auf dem eigenen Bildschirm, nur im Stream oder in beidem
+- **Ton aus** je Web-Overlay: schaltet alle Töne stumm, auch später nachgeladene, und entzieht der Seite zusätzlich die Erlaubnis zum selbstständigen Abspielen
+- die getrennten Ausgabe-Adressen aus 1.2.9 haben Vorrang vor der Tabelle; Kombinieren bleibt möglich (`?only=videos,images`)
+
+### Technisch
+
+- der lokale Bereichsfilter wird beim Ausliefern von `index.html` eingesetzt (wie der Control-Token), der OBS-Filter beim Ausliefern von `overlay-output.html`; für die Ausgabe gilt der lokale Filter bewusst nicht
+- neue Bridge-Route `/output-areas` samt Speicher in `data/config/output-areas.json`; fehlt die Datei, ist alles an
+
 ## 1.2.9
 
 ### Neu

@@ -512,8 +512,27 @@ internal sealed class OverlayForm : Form
     } catch (e) {}
   }
 
+  // Ton aus: Alle Medien im Dokument stummschalten. Ein Waechter erfasst auch das,
+  // was die Seite spaeter nachlaedt - sonst kaeme bei der naechsten Meldung wieder Ton.
+  var wantMuted = false;
+  function applyMute() {
+    try {
+      var media = document.querySelectorAll('video, audio');
+      for (var i = 0; i < media.length; i++) {
+        if (media[i].muted !== wantMuted) media[i].muted = wantMuted;
+        if (wantMuted) { try { media[i].volume = 0; } catch (e2) {} }
+      }
+    } catch (e) {}
+  }
+  window.setInterval(function () { if (wantMuted) applyMute(); }, 1000);
+
   window.addEventListener('message', function (event) {
     var data = event && event.data;
+    if (data && typeof data === 'object' && data.freakshowOverlay === 'mute') {
+      wantMuted = data.muted === true;
+      applyMute();
+      return;
+    }
     if (!data || typeof data !== 'object' || data.freakshowOverlay !== 'background') return;
     wanted = data.transparent === true;
     apply(wanted);

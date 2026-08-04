@@ -118,8 +118,13 @@
       function outputOnlyParam() {
         try {
           var m = /[?&]only=([^&]*)/.exec(String(window.location.search || ''));
-          return m && m[1] ? '&only=' + m[1] : '';
-        } catch (e) { return ''; }
+          if (m && m[1]) return '&only=' + m[1];
+        } catch (e) {}
+        // Kein eigenes "only" in der Adresse? Dann gilt die OBS-Spalte aus den
+        // Einstellungen, die die Bridge hier eingesetzt hat (leer = alles zeigen).
+        var stored = '__OUTPUT_AREA_FILTER__';
+        if (stored && stored.indexOf('_OUTPUT_AREA_FILTER_') < 0) return '&only=' + encodeURIComponent(stored);
+        return '';
       }
 
       function reloadOutput(reason) {

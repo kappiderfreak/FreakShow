@@ -88,6 +88,7 @@
       triggerOn: link.triggerOn === true,
       manualVersion: Math.max(0, toInt(link.manualVersion, 0)),
       transparentBg: link.transparentBg === true,
+      muted: link.muted === true,
       crop: normalizeCrop(link.crop),
       area: normalizeArea(link.area)
     };
@@ -913,13 +914,18 @@
     // Oberflaeche erst nach dem Laden aufbauen.
     var wantsTransparent = link.transparentBg === true;
     backgroundFrames.push({ id: String(link.id || link.url || ''), frame: frame });
+    var wantsMuted = link.muted === true;
     function postBackgroundWish() {
       try {
         if (frame.contentWindow) {
           frame.contentWindow.postMessage({ freakshowOverlay: 'background', transparent: wantsTransparent }, '*');
+          frame.contentWindow.postMessage({ freakshowOverlay: 'mute', muted: wantsMuted }, '*');
         }
       } catch (err) {}
     }
+    // Ohne "autoplay" darf die Seite von sich aus keinen Ton starten - zweite
+    // Absicherung neben dem Stummschalten im Dokument selbst.
+    if (wantsMuted) frame.allow = 'fullscreen; clipboard-read; clipboard-write; local-network-access';
     frame.addEventListener('load', function () {
       postBackgroundWish();
       window.setTimeout(postBackgroundWish, 400);
@@ -944,6 +950,7 @@
   function linkPartSignature(link) {
     return link.id + '|' + link.name + '|' + applyConnection(link) +
       '|bg' + (link.transparentBg === true ? '1' : '0') +
+      '|mute' + (link.muted === true ? '1' : '0') +
       '|crop' + JSON.stringify(normalizeCrop(link.crop)) +
       '|' + JSON.stringify(normalizeArea(link.area));
   }
