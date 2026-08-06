@@ -21,6 +21,16 @@
   var lastRequestedKey = '';
   var lastRequestedAt = 0;
   var pendingTemplateData = Object.create(null);
+  // Die Browser-/OBS-Ausgabe lädt index.html mit outputViewer=1. Die lokale
+  // Vollbild-Instanz hat diesen Parameter nicht und ist damit der Gaming-PC.
+  var IS_OUTPUT = (function () {
+    try { return /[?&]outputViewer=1(?:&|$)/.test(String(window.location.search || '')); }
+    catch (err) { return false; }
+  })();
+
+  function isEnabledForCurrentOutput(config) {
+    return IS_OUTPUT ? config.showOutput !== false : config.showLocal !== false;
+  }
 
   // Neuester Trigger gewinnt. Alte Lade-/Play-Events duerfen einen spaeteren Trigger
   // niemals mehr ueberholen. Nur ein VOLLSTAENDIG gepuffertes Video darf warm bleiben;
@@ -213,6 +223,10 @@
       triggerType: (item.triggerType === 'reward') ? 'reward' : 'custom',
       groupTrigger: String(item.groupTrigger || ''),
       videoPath: String(item.videoPath || ''),
+      // Bestehende Kataloge enthalten diese Felder noch nicht: dann auf beiden
+      // Ausgaben zeigen, damit sich ihr Verhalten nicht ungewollt ändert.
+      showLocal: item.showLocal !== false,
+      showOutput: item.showOutput !== false,
       startSeconds: number(item.startSeconds, 0, 0, 86400),
       durationSeconds: number(item.durationSeconds, 0, 0, 86400),
       volume: number(item.volume, 100, 0, 100),
@@ -972,11 +986,11 @@
     else discardVideo(video);
   }
 
-  function findForVideo(video) {
+  function findForVideo(video, includeUnavailable) {
     var forcedId = video.getAttribute('data-kappi-video-id') || '';
     var source = normalizePath(video.currentSrc || video.src || video.getAttribute('src'));
     for (var i = 0; i < items.length; i++) {
-      if (!items[i].enabled) continue;
+      if (!includeUnavailable && (!items[i].enabled || !isEnabledForCurrentOutput(items[i]))) continue;
       if (forcedId && items[i].id === forcedId) return items[i];
       var configured = normalizePath(items[i].videoPath);
       if (configured && source && (source === configured || source.slice(-configured.length) === configured)) return items[i];
@@ -1084,6 +1098,13 @@
     }
     var config = findForVideo(video);
     if (!config) {
+      // Ein älteres Einzel-Skript kann sein Video noch selbst erzeugen. Sobald
+      // dieses Ziel ausgeschaltet wird, stoppen wir auch diesen Alt-Fallback.
+      var unavailable = findForVideo(video, true);
+      if (unavailable && (!unavailable.enabled || !isEnabledForCurrentOutput(unavailable))) {
+        discardVideo(video);
+        return;
+      }
       // Kein passendes (aktives) Item mehr - z. B. Video-Schalter waehrend der
       // Wiedergabe ausgeschaltet. Die Wiedergabe selbst bleibt unangetastet,
       // aber die Bubble darf nicht als veraltete Anzeige stehen bleiben.
@@ -1208,6 +1229,9 @@
     if (window.__KAPPI_INSTANCE_DEACTIVATED__) return null; // stummgeschaltete Alt-Instanz
     if (window.__KAPPI_OVERLAY_SUSPENDED__) return null;    // App-Ausnahme aktiv (Vordergrund-App)
     if (!config || !config.enabled || !config.videoPath) return null;
+    // Als erledigt melden, damit ein altes Effekt-Skript nicht auf dieser
+    // ausgeschalteten Ausgabe mit seinem eigenen Fallback-Player weitermacht.
+    if (!isEnabledForCurrentOutput(config)) return true;
     // Nur ein direktes Doppel-Echo blocken. Der Wechsel A -> B -> A ist erlaubt,
     // auch wenn alle drei Streamer.bot-Events innerhalb von 140 ms eintreffen.
     var dkey = String(config.id || config.trigger || config.videoPath);
@@ -1318,7 +1342,7 @@
     var groupBuckets = {};
     for (var g = 0; g < items.length; g++) {
       var gc = items[g];
-      if (!gc.enabled || !gc.groupTrigger) continue;
+      if (!gc.enabled || !isEnabledForCurrentOutput(gc) || !gc.groupTrigger) continue;
       if (data[gc.groupTrigger] === true) {
         (groupBuckets[gc.groupTrigger] = groupBuckets[gc.groupTrigger] || []).push(gc);
       }
@@ -1427,6 +1451,7 @@
         // (true) melden, damit die Effekt-Datei NICHT auf ihre eigene Wiedergabe
         // zurueckfaellt. So blockiert der Schalter auch echte Streamer.bot-/Reward-Trigger.
         if (!cfg.enabled) return true;
+        if (!isEnabledForCurrentOutput(cfg)) return true;
         return createManagedVideo(cfg, resolvedTemplateData);
       }
     }

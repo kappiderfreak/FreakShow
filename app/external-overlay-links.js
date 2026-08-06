@@ -86,6 +86,8 @@
       enabled: link.enabled !== false,
       trigger: String(link.trigger || '').replace(/^\s+|\s+$/g, ''),
       triggerOn: link.triggerOn === true,
+      // -1 = globaler Overlay-Monitor (Abwärtskompatibilität für bestehende Links).
+      targetMonitor: Math.max(-1, toInt(link.targetMonitor, -1)),
       manualVersion: Math.max(0, toInt(link.manualVersion, 0)),
       transparentBg: link.transparentBg === true,
       muted: link.muted === true,
@@ -97,6 +99,17 @@
   function toInt(value, fallback) {
     var parsed = parseInt(value, 10);
     return isNaN(parsed) ? fallback : parsed;
+  }
+
+  function belongsToThisMonitor(link) {
+    // Browser-/OBS-Ausgaben erhalten keine lokale Bildschirm-Route und zeigen
+    // daher wie bisher sämtliche Web-Overlays.
+    if (!window.__KAPPI_MONITOR_ROUTING__) return true;
+    var local = Number(window.__KAPPI_LOCAL_MONITOR__);
+    var primary = Number(window.__KAPPI_PRIMARY_MONITOR__);
+    var target = toInt(link && link.targetMonitor, -1);
+    if (target < 0) target = isFinite(primary) ? primary : 0;
+    return target === local;
   }
 
   // Zuschnitt je Seite in Prozent. Gegenueberliegende Seiten duerfen zusammen
@@ -137,6 +150,7 @@
     for (var i = 0; i < links.length; i++) {
       var item = normalizeLink(links[i]);
       if (isHandledLocally(item)) continue;
+      if (!belongsToThisMonitor(item)) continue;
       // Ausgeschaltete Links muessen fuer Streamer.bot im Speicher bleiben: Sie sind
       // unsichtbar, bis ihr Custom-Event die Laufzeit-Umschaltung aktiviert.
       if (item.url && item.persistent && (item.enabled || (item.triggerOn && item.trigger))) out.push(item);

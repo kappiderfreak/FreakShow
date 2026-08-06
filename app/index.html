@@ -6,7 +6,45 @@
          Streamlabs & Co. liefern sonst 404, wenn ein fremder Referer (127.0.0.1:<Port>)
          mitgeschickt wird. Gilt fuer die Seite UND alle eingebetteten iframes. -->
     <meta name="referrer" content="no-referrer" />
-    <style>html, body { margin: 0; padding: 0; background: transparent; overflow: hidden; }</style>
+    <style>
+      html, body { margin: 0; padding: 0; background: transparent; overflow: hidden; }
+      /* Ein Zusatzfenster rendert ausschließlich gezielt zugewiesene Notizen und
+         Web-Overlays. Alles andere bleibt auf dem globalen Overlay-Monitor. */
+      html.kappi-satellite-overlay body > *:not(#kappi-cheatsheet-layer):not(#kappi-external-overlay-layer) { display: none !important; }
+    </style>
+    <script>
+      (function () {
+        var query = String(window.location.search || '');
+        var get = function (name) {
+          var match = new RegExp('[?&]' + name + '=([^&]*)').exec(query);
+          return match ? decodeURIComponent(match[1] || '') : '';
+        };
+        var local = parseInt(get('localMonitor'), 10);
+        var primary = parseInt(get('primaryMonitor'), 10);
+        var satellite = get('satellite') === '1';
+        window.__KAPPI_SATELLITE__ = satellite;
+        window.__KAPPI_MONITOR_ROUTING__ = !isNaN(local);
+        window.__KAPPI_LOCAL_MONITOR__ = isNaN(local) ? -1 : local;
+        window.__KAPPI_PRIMARY_MONITOR__ = isNaN(primary) ? 0 : primary;
+        if (!satellite) return;
+        document.documentElement.classList.add('kappi-satellite-overlay');
+        // Die Hauptmodule laufen nicht doppelt auf weiteren Monitoren.
+        window.__KAPPI_VIDEO_OVERLAY_MANAGER_ACTIVE__ = true;
+        window.__KAPPI_IMAGE_OVERLAYS_ACTIVE__ = true;
+        window.__KAPPI_EMOTE_RAIN_ACTIVE__ = true;
+        window.__KAPPI_EMOTE_RAIN_USER_ACTIVE__ = true;
+        window.__KAPPI_GIPHY_SB_LOCAL_ACTIVE__ = true;
+        // Direkte Video-Trigger aus älteren Content-Dateien dürfen auf dem
+        // Zusatzmonitor keinen Ton oder ein zweites Video starten.
+        try {
+          var nativePlay = window.HTMLMediaElement && window.HTMLMediaElement.prototype && window.HTMLMediaElement.prototype.play;
+          if (nativePlay && !window.__KAPPI_SATELLITE_MEDIA_BLOCK__) {
+            window.__KAPPI_SATELLITE_MEDIA_BLOCK__ = true;
+            window.HTMLMediaElement.prototype.play = function () { return Promise.resolve(); };
+          }
+        } catch (e) {}
+      })();
+    </script>
 
     <!-- GSAP optional; der Emote-Rain funktioniert auch ohne GSAP.
          async: darf den Overlay-Start NIE blockieren (z. B. wenn nach einem
@@ -253,12 +291,12 @@
         })();
     </script>
 
-    <script src="/app/video-overlay-manager.js?v=20260729-gradient-shadow"></script>
+    <script src="/app/video-overlay-manager.js?v=20260805-video-output-targets"></script>
     <script src="/app/game-control-trigger.js?v=20260719-status-image1"></script>
     <script src="/app/emote-rain-anim.js?v=20260710-shapes2"></script>
     <script src="/app/emote-rain-user.js?v=20260727-standard"></script>
     <script src="/app/overlay-layers.js?v=20260710-endgame"></script>
-    <script src="/app/overlay-images.js?v=20260803-onlyfilter"></script>
+    <script src="/app/overlay-images.js?v=20260804-perelement"></script>
     <script src="/app/overlay-heartbeat.js?v=20260716-viewport1"></script>
 
     <!-- Deine vorhandenen Module -->

@@ -1,6 +1,10 @@
 (function () {
   'use strict';
 
+  // Zusatzfenster dienen nur der Anzeige von Notizen/Web-Overlays. Sie dürfen
+  // niemals denselben Spielbefehl ein zweites Mal an den Gaming-PC senden.
+  if (window.__KAPPI_SATELLITE__) return;
+
   // Streamer.bot laeuft oft auf einem zweiten PC. Deshalb empfaengt das echte
   // FreakShow-Overlay das General.Custom-Signal und beauftragt erst hier die
   // lokale Bridge/AHK-Engine. So wird niemals 127.0.0.1 auf dem Streamer.bot-PC

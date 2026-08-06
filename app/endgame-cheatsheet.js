@@ -138,6 +138,18 @@
     return Math.max(lo, Math.min(hi, v));
   }
 
+  // Die EXE öffnet für weitere physische Bildschirme kleine Zusatzfenster. Ein
+  // Element ohne eigene Auswahl (-1) gehört weiterhin zum global gewählten
+  // Hauptmonitor – das erhält das alte Verhalten vollständig.
+  function belongsToThisMonitor(cfg) {
+    if (!window.__KAPPI_MONITOR_ROUTING__) return true;
+    var local = Number(window.__KAPPI_LOCAL_MONITOR__);
+    var primary = Number(window.__KAPPI_PRIMARY_MONITOR__);
+    var target = parseInt(cfg && cfg.targetMonitor, 10);
+    if (!isFinite(target) || target < 0) target = isFinite(primary) ? primary : 0;
+    return target === local;
+  }
+
   // Eine gemeinsame, fixe Ebene haelt ALLE Text-Kaesten (so bewegt/entfernt ein Text
   // die anderen nicht). Jeder Text ist ein Kind mit eigener Position.
   function ensureLayer() {
@@ -243,6 +255,7 @@
     for (var i = 0; i < items.length; i++) {
       var cfg = items[i];
       if (!cfg || !cfg.id) continue;
+      if (!belongsToThisMonitor(cfg)) continue;
       seen[cfg.id] = true;
       var triggerKey = cfg.triggerOn ? String(cfg.trigger || '').trim() : '';
       if (!triggerKey || (Object.prototype.hasOwnProperty.call(trigKeys, cfg.id) && trigKeys[cfg.id] !== triggerKey)) {

@@ -1,5 +1,20 @@
 # FreakShow – Änderungen
 
+## 1.3.1
+
+### Neu und verbessert
+
+- unterstützte Videos, Bilder, Notizen und Web-Overlays können gezielter auf dem Gaming-PC, in der OBS/HTML-Ausgabe und auf einem ausgewählten physischen Monitor erscheinen
+- Schalter und Einstellungszeilen sind in allen Tabs einheitlicher, kompakter und sauber ausgerichtet
+- Monitor-Auswahlfelder, Video-Zeitsteuerung und Chroma-Key-Einstellungen nutzen die verfügbare Breite ohne überlange Schalterflächen
+
+### Korrigiert
+
+- doppelte und uneinheitlich helle Rahmen in mehreren Einstellungsboxen entfernt
+- Pfadfelder und deaktivierte Optionen passen wieder zum gewählten Farbschema
+- ein fest eingetragener lokaler Entwicklungspfad wurde durch einen portablen Fallback ersetzt
+- der Versionstest prüft jetzt tatsächlich die veröffentlichte Version
+
 ## 1.3.0
 
 ### Neu

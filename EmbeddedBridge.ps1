@@ -412,6 +412,9 @@ function Write-ExternalLinksJson {
     $persistent = if ($null -ne $item.persistent) { [bool]$item.persistent } else { $true }
     $trigger = ([string]$item.trigger).Trim()
     $triggerOn = if ($null -ne $item.triggerOn) { [bool]$item.triggerOn } else { $false }
+    # -1 = globaler Overlay-Monitor (bestehendes Verhalten); 0..31 sind echte
+    # Bildschirme, die vom Host beim Speichern/Rendern aufgelöst werden.
+    $targetMonitor = Clamp-Int -Value $item.targetMonitor -Fallback -1 -Min -1 -Max 31
     $links += [ordered]@{
       id = [string]$item.id
       name = [string]$item.name
@@ -422,6 +425,7 @@ function Write-ExternalLinksJson {
       enabled = $enabled
       trigger = $trigger
       triggerOn = $triggerOn
+      targetMonitor = $targetMonitor
       manualVersion = if ($null -ne $item.manualVersion) { [int64]$item.manualVersion } else { 0 }
       # Schalter "Hintergrund entfernen": Die Overlay-Seite reicht ihn an das
       # jeweilige iframe weiter, wo das Ausblenden stattfindet.
@@ -561,6 +565,10 @@ function Normalize-VideoOverlayItem {
   if (@('center','left','right','top','bottom') -notcontains $align) { $align = 'center' }
   $freePosition = if ($null -ne $Item.freePosition) { [System.Convert]::ToBoolean($Item.freePosition) } else { $false }
   $freePositionOutside = if ($null -ne $Item.freePositionOutside) { [System.Convert]::ToBoolean($Item.freePositionOutside) } else { $false }
+  # Pro Video getrennt steuerbar: auf dem lokalen Gaming-PC, in der OBS/HTML-Ausgabe
+  # oder auf beiden. Fehlende Werte aus älteren Katalogen bleiben bewusst "an".
+  $showLocal = if ($null -ne $Item.showLocal) { [System.Convert]::ToBoolean($Item.showLocal) } else { $true }
+  $showOutput = if ($null -ne $Item.showOutput) { [System.Convert]::ToBoolean($Item.showOutput) } else { $true }
   $area = if ($null -ne $Item.videoArea) { $Item.videoArea } else { $null }
   $areaWidth = ConvertTo-SafeDouble -Value $(if ($null -ne $area) { $area.width } else { 100 }) -Fallback 100 -Min 8 -Max 100
   $areaHeight = ConvertTo-SafeDouble -Value $(if ($null -ne $area) { $area.height } else { 100 }) -Fallback 100 -Min 8 -Max 100
@@ -664,6 +672,8 @@ function Normalize-VideoOverlayItem {
     align = $align
     freePosition = $freePosition
     freePositionOutside = $freePositionOutside
+    showLocal = $showLocal
+    showOutput = $showOutput
     videoArea = [ordered]@{ x = $areaX; y = $areaY; width = $areaWidth; height = $areaHeight }
     videoCrop = [ordered]@{ left = $cropLeft; top = $cropTop; right = $cropRight; bottom = $cropBottom }
     bubbleEnabled = $bubbleEnabled
@@ -822,7 +832,10 @@ function Build-ImageOverlayJson {
   $color     = if ($null -ne $Item.color) { [string]$Item.color } else { '' }
   $triggerOn = if ($null -ne $Item.triggerOn -and [bool]$Item.triggerOn) { 'true' } else { 'false' }
   $trigger   = if ($null -ne $Item.trigger) { [string]$Item.trigger } else { '' }
-  return ('{"id":"' + (Escape-JsonString $id) + '","name":"' + (Escape-JsonString $name) + '","path":"' + (Escape-JsonString $path) + '","x":' + $x + ',"y":' + $y + ',"width":' + $w + ',"height":' + $h + ',"enabled":' + $enabled + ',"opacity":' + $opacity + ',"colorOn":' + $colorOn + ',"color":"' + (Escape-JsonString $color) + '","triggerOn":' + $triggerOn + ',"trigger":"' + (Escape-JsonString $trigger) + '"}')
+  # Je Bild getrennt: auf diesem PC zeigen / in der OBS-Ausgabe zeigen.
+  $showLocal  = if ($null -ne $Item.showLocal -and -not [bool]$Item.showLocal) { 'false' } else { 'true' }
+  $showOutput = if ($null -ne $Item.showOutput -and -not [bool]$Item.showOutput) { 'false' } else { 'true' }
+  return ('{"id":"' + (Escape-JsonString $id) + '","name":"' + (Escape-JsonString $name) + '","path":"' + (Escape-JsonString $path) + '","x":' + $x + ',"y":' + $y + ',"width":' + $w + ',"height":' + $h + ',"enabled":' + $enabled + ',"opacity":' + $opacity + ',"colorOn":' + $colorOn + ',"color":"' + (Escape-JsonString $color) + '","triggerOn":' + $triggerOn + ',"trigger":"' + (Escape-JsonString $trigger) + '","showLocal":' + $showLocal + ',"showOutput":' + $showOutput + '}')
 }
 
 function Read-ImageOverlaysJson {
@@ -1917,6 +1930,8 @@ function Build-CheatItemJson {
   $updatedAt = (Get-NowMilliseconds)
   $trigger   = ''
   $triggerOn = $false
+  # -1 = global ausgewählter Overlay-Monitor (Standard für alte Notizen).
+  $targetMonitor = -1
   if ($null -ne $o) {
     if ($null -ne $o.id)          { $id = [string]$o.id }
     if ($null -ne $o.enabled)     { $enabled = [bool]$o.enabled }
@@ -1936,6 +1951,7 @@ function Build-CheatItemJson {
     if ($null -ne $o.updatedAt)   { try { $updatedAt = [long][double]$o.updatedAt } catch {} }
     if ($null -ne $o.trigger)     { $trigger = [string]$o.trigger }
     if ($null -ne $o.triggerOn)   { $triggerOn = [bool]$o.triggerOn }
+    if ($null -ne $o.targetMonitor) { try { $targetMonitor = [int][double]$o.targetMonitor } catch {} }
   }
   if ($bgOpacity -lt 0) { $bgOpacity = 0 }; if ($bgOpacity -gt 100) { $bgOpacity = 100 }
   if ($textOpacity -lt 0) { $textOpacity = 0 }; if ($textOpacity -gt 100) { $textOpacity = 100 }
@@ -1945,6 +1961,7 @@ function Build-CheatItemJson {
   if ($width -lt 5) { $width = 5 }; if ($width -gt 90) { $width = 90 }
   if ($height -lt 0) { $height = 0 }; if ($height -gt 0 -and $height -lt 4) { $height = 4 }; if ($height -gt 95) { $height = 95 }
   if ($height -gt 0 -and ($y + $height) -gt 100) { $y = 100 - $height }
+  if ($targetMonitor -lt -1) { $targetMonitor = -1 }; if ($targetMonitor -gt 31) { $targetMonitor = 31 }
   $x = [math]::Round($x, 2); $y = [math]::Round($y, 2); $width = [math]::Round($width, 2); $height = [math]::Round($height, 2)
   if ([string]::IsNullOrWhiteSpace($id)) { $id = 'legacy' }
   $sb = New-Object System.Text.StringBuilder
@@ -1965,6 +1982,7 @@ function Build-CheatItemJson {
   [void]$sb.Append(',"height":' + $height)
   [void]$sb.Append(',"trigger":"' + (Escape-JsonString $trigger) + '"')
   [void]$sb.Append(',"triggerOn":' + $(if ($triggerOn) { 'true' } else { 'false' }))
+  [void]$sb.Append(',"targetMonitor":' + $targetMonitor)
   [void]$sb.Append(',"updatedAt":' + $updatedAt)
   [void]$sb.Append('}')
   return $sb.ToString()
@@ -3000,6 +3018,10 @@ function Get-OutputAreaFilter {
     $config = (Read-OutputAreasJson) | ConvertFrom-Json -ErrorAction Stop
     $allowed = @()
     foreach ($name in $script:OutputAreaNames) {
+      # Web-Overlays werden in der Ausgabe ohnehin nie gezeigt. Sie hier immer als
+      # erlaubt fuehren, sonst wuerde ein (wirkungsloser) Schalter den Filter scharf
+      # machen und die uebrigen Bereiche unnoetig einschraenken.
+      if ($name -eq 'overlays') { $allowed += $name; continue }
       $entry = $config.areas.$name
       if ($null -eq $entry -or $null -eq $entry.output -or [bool]$entry.output) { $allowed += $name }
     }
