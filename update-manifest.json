@@ -1,7 +1,7 @@
 {
-  "version": "1.3.0",
+  "version": "1.3.1",
   "minimumVersion": "1.0.1",
-  "packageUrl": "https://github.com/kappiderfreak/FreakShow/releases/download/v1.3.0/FreakShow-update-1.3.0.zip",
-  "sha256": "9261bc0da50cba4a854dc737693088b76c7173bcf22f94f007c208c42585290c",
-  "releaseUrl": "https://github.com/kappiderfreak/FreakShow/releases/tag/v1.3.0"
+  "packageUrl": "https://github.com/kappiderfreak/FreakShow/releases/download/v1.3.1/FreakShow-update-1.3.1.zip",
+  "sha256": "dd28d0679b488566c3252a364ea22ef46b445068120129f783f109e8653575ae",
+  "releaseUrl": "https://github.com/kappiderfreak/FreakShow/releases/tag/v1.3.1"
 }

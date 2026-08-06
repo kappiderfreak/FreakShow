@@ -234,6 +234,10 @@ internal sealed class OverlayForm : Form
     private readonly System.Windows.Forms.Timer monitorTimer;
     private readonly System.Windows.Forms.Timer sbStartupTimer;
     private readonly System.Windows.Forms.Timer updateTimer;
+    // Zusätzliche transparente Fenster für gezielt geroutete Notizen und
+    // Web-Overlays auf den anderen physischen Monitoren.
+    private readonly Dictionary<int, OverlaySatelliteForm> satelliteForms = new Dictionary<int, OverlaySatelliteForm>();
+    private bool overlayNavigationReady;
     private NotifyIcon tray;
     private ToolStripMenuItem updateMenuItem;
     private UpdateManifest availableUpdate;
@@ -299,7 +303,7 @@ internal sealed class OverlayForm : Form
         };
 
         Load += delegate { InitializeAsync(); };
-        FormClosed += delegate { try { UnregisterHotKey(Handle, HOTKEY_ID); } catch { } try { sbStartupTimer.Stop(); } catch { } try { updateTimer.Stop(); } catch { } if (tray != null) { tray.Visible = false; tray.Dispose(); } };
+        FormClosed += delegate { CloseSatelliteForms(); try { UnregisterHotKey(Handle, HOTKEY_ID); } catch { } try { sbStartupTimer.Stop(); } catch { } try { updateTimer.Stop(); } catch { } if (tray != null) { tray.Visible = false; tray.Dispose(); } };
         CreateTray();
     }
 
@@ -399,7 +403,9 @@ internal sealed class OverlayForm : Form
             await EnableOverlayBackgroundRemoval();
             await WaitForBridge();
             await WaitForStreamerBotEndpoint();
-            web.Source = new Uri("http://127.0.0.1:18081/content/index.html");
+            overlayNavigationReady = true;
+            NavigatePrimaryOverlay(lastMonitor < 0 ? 0 : lastMonitor);
+            SyncSatelliteForms(lastMonitor < 0 ? 0 : lastMonitor);
             sbStartupWatchStarted = DateTime.UtcNow;
             lastSbStartupReload = DateTime.MinValue;
             sbStartupReloads = 0;
@@ -430,7 +436,7 @@ internal sealed class OverlayForm : Form
     // auch ein fremdes iframe, dieses winzige Skript mit. Es wartet auf eine
     // Nachricht der Overlay-Seite und blendet den Hintergrund genau dort aus, wo es
     // erlaubt ist: im Dokument selbst. Ohne diese Nachricht tut es nichts.
-    private const string OverlayBackgroundScript = @"
+    internal const string OverlayBackgroundScript = @"
 (function () {
   if (window.__freakshowBackgroundBridge) return;
   window.__freakshowBackgroundBridge = true;
@@ -1037,11 +1043,87 @@ internal sealed class OverlayForm : Form
         Screen[] screens = Screen.AllScreens;
         if (screens.Length == 0) return;
         if (index < 0 || index >= screens.Length) index = 0;
-        if (index == lastMonitor && Bounds == screens[index].Bounds) return;
-        lastMonitor = index;
-        Bounds = screens[index].Bounds;
-        EnsureTopMost("monitor");
-        HostLog.Write("Overlay moved to monitor " + index + " (" + Bounds.Width + "x" + Bounds.Height + ").");
+        bool changed = index != lastMonitor || Bounds != screens[index].Bounds;
+        if (changed)
+        {
+            lastMonitor = index;
+            Bounds = screens[index].Bounds;
+            EnsureTopMost("monitor");
+            HostLog.Write("Overlay moved to monitor " + index + " (" + Bounds.Width + "x" + Bounds.Height + ").");
+        }
+        if (overlayNavigationReady)
+        {
+            if (changed) NavigatePrimaryOverlay(index);
+            SyncSatelliteForms(index);
+        }
+    }
+
+    internal static Uri BuildOverlayUri(int localMonitor, int primaryMonitor, bool satellite)
+    {
+        string url = "http://127.0.0.1:18081/content/index.html?localMonitor=" + localMonitor + "&primaryMonitor=" + primaryMonitor;
+        if (satellite) url += "&satellite=1&instanceGuard=0";
+        return new Uri(url);
+    }
+
+    private void NavigatePrimaryOverlay(int monitorIndex)
+    {
+        if (web == null || web.CoreWebView2 == null) return;
+        Uri target = BuildOverlayUri(monitorIndex, monitorIndex, false);
+        if (web.Source == null || !String.Equals(web.Source.AbsoluteUri, target.AbsoluteUri, StringComparison.OrdinalIgnoreCase))
+        {
+            web.Source = target;
+            HostLog.Write("Primary overlay routing set to monitor " + monitorIndex + ".");
+        }
+    }
+
+    private void SyncSatelliteForms(int primaryMonitor)
+    {
+        Screen[] screens = Screen.AllScreens;
+        HashSet<int> desired = new HashSet<int>();
+        for (int i = 0; i < screens.Length; i++)
+        {
+            if (i == primaryMonitor) continue;
+            desired.Add(i);
+            OverlaySatelliteForm satellite;
+            if (!satelliteForms.TryGetValue(i, out satellite) || satellite.IsDisposed)
+            {
+                satellite = new OverlaySatelliteForm(contentRoot, i, primaryMonitor);
+                satelliteForms[i] = satellite;
+                satellite.Show();
+                HostLog.Write("Satellite overlay opened on monitor " + i + ".");
+            }
+            else
+            {
+                satellite.Refresh(primaryMonitor);
+            }
+        }
+
+        List<int> close = new List<int>();
+        foreach (KeyValuePair<int, OverlaySatelliteForm> pair in satelliteForms)
+        {
+            if (!desired.Contains(pair.Key)) close.Add(pair.Key);
+        }
+        for (int j = 0; j < close.Count; j++)
+        {
+            OverlaySatelliteForm satellite;
+            if (satelliteForms.TryGetValue(close[j], out satellite))
+            {
+                try { satellite.Close(); } catch { }
+                try { satellite.Dispose(); } catch { }
+            }
+            satelliteForms.Remove(close[j]);
+            HostLog.Write("Satellite overlay closed on monitor " + close[j] + ".");
+        }
+    }
+
+    private void CloseSatelliteForms()
+    {
+        foreach (KeyValuePair<int, OverlaySatelliteForm> pair in satelliteForms)
+        {
+            try { pair.Value.Close(); } catch { }
+            try { pair.Value.Dispose(); } catch { }
+        }
+        satelliteForms.Clear();
     }
 
     protected override void OnHandleCreated(EventArgs e)
@@ -1234,6 +1316,141 @@ internal sealed class OverlayForm : Form
         tray.ContextMenuStrip = menu;
         tray.DoubleClick += delegate { OpenSettings(); };
         tray.Visible = true;
+    }
+}
+
+// Schlankes, click-through Ausgabefenster für einen weiteren physischen Monitor.
+// Die URL trägt den Monitorindex; index.html zeigt dort ausschließlich gezielt
+// zugewiesene Notizen und Web-Overlays. Dadurch bleibt der Hauptmonitor unverändert.
+internal sealed class OverlaySatelliteForm : Form
+{
+    private const int WS_EX_TRANSPARENT = 0x20;
+    private const int WS_EX_TOOLWINDOW = 0x80;
+    private const int WS_EX_TOPMOST = 0x8;
+    private const int WS_EX_LAYERED = 0x80000;
+    private const int WS_EX_NOACTIVATE = 0x08000000;
+    private const int GWL_EXSTYLE = -20;
+    private const uint SWP_NOSIZE = 0x0001;
+    private const uint SWP_NOMOVE = 0x0002;
+    private const uint SWP_NOACTIVATE = 0x0010;
+    private const uint SWP_NOOWNERZORDER = 0x0200;
+    private const uint SWP_NOSENDCHANGING = 0x0400;
+    private static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint flags);
+
+    private readonly string contentRoot;
+    private readonly int monitorIndex;
+    private readonly WebView2 web;
+    private readonly System.Windows.Forms.Timer refreshTimer;
+    private int primaryMonitor;
+    private bool initialized;
+
+    public OverlaySatelliteForm(string contentRoot, int monitorIndex, int primaryMonitor)
+    {
+        this.contentRoot = contentRoot;
+        this.monitorIndex = monitorIndex;
+        this.primaryMonitor = primaryMonitor;
+        Text = "FreakShow – Zusatzmonitor " + (monitorIndex + 1);
+        FormBorderStyle = FormBorderStyle.None;
+        StartPosition = FormStartPosition.Manual;
+        TopMost = true;
+        ShowInTaskbar = false;
+        BackColor = Color.Magenta;
+        TransparencyKey = Color.Magenta;
+        DoubleBuffered = true;
+        ApplyScreenBounds();
+
+        web = new WebView2();
+        web.Dock = DockStyle.Fill;
+        web.DefaultBackgroundColor = Color.Transparent;
+        Controls.Add(web);
+
+        refreshTimer = new System.Windows.Forms.Timer();
+        refreshTimer.Interval = 1500;
+        refreshTimer.Tick += delegate { ApplyScreenBounds(); EnsureTopMost(); };
+        Load += delegate { InitializeAsync(); };
+        FormClosed += delegate { try { refreshTimer.Stop(); } catch { } };
+    }
+
+    protected override CreateParams CreateParams
+    {
+        get
+        {
+            CreateParams cp = base.CreateParams;
+            cp.ExStyle |= WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_NOACTIVATE;
+            return cp;
+        }
+    }
+
+    protected override bool ShowWithoutActivation { get { return true; } }
+
+    protected override void OnShown(EventArgs e)
+    {
+        base.OnShown(e);
+        EnsureTopMost();
+    }
+
+    internal void Refresh(int newPrimaryMonitor)
+    {
+        primaryMonitor = newPrimaryMonitor;
+        ApplyScreenBounds();
+        EnsureTopMost();
+        NavigateIfReady();
+    }
+
+    private void ApplyScreenBounds()
+    {
+        Screen[] screens = Screen.AllScreens;
+        if (monitorIndex < 0 || monitorIndex >= screens.Length) return;
+        if (Bounds != screens[monitorIndex].Bounds) Bounds = screens[monitorIndex].Bounds;
+    }
+
+    private async void InitializeAsync()
+    {
+        try
+        {
+            string baseDir = Path.GetDirectoryName(Application.ExecutablePath);
+            string data = Path.Combine(baseDir, "WebView2Satellite-" + monitorIndex);
+            CoreWebView2EnvironmentOptions options = new CoreWebView2EnvironmentOptions("--disable-http-cache --disk-cache-size=1 --autoplay-policy=no-user-gesture-required");
+            CoreWebView2Environment environment = await CoreWebView2Environment.CreateAsync(null, data, options);
+            await web.EnsureCoreWebView2Async(environment);
+            web.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
+            web.CoreWebView2.Settings.AreDevToolsEnabled = false;
+            web.CoreWebView2.Settings.IsStatusBarEnabled = false;
+            web.CoreWebView2.Settings.IsZoomControlEnabled = false;
+            web.CoreWebView2.PermissionRequested += delegate(object sender, CoreWebView2PermissionRequestedEventArgs e) { e.State = CoreWebView2PermissionState.Allow; };
+            web.CoreWebView2.ProcessFailed += delegate { try { web.Reload(); } catch { } };
+            await web.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(OverlayForm.OverlayBackgroundScript);
+            initialized = true;
+            NavigateIfReady();
+            refreshTimer.Start();
+            HostLog.Write("Satellite overlay ready on monitor " + monitorIndex + ".");
+        }
+        catch (Exception ex)
+        {
+            HostLog.Write("Satellite overlay initialization failed on monitor " + monitorIndex + ": " + ex.Message);
+            try { Close(); } catch { }
+        }
+    }
+
+    private void NavigateIfReady()
+    {
+        if (!initialized || web.CoreWebView2 == null) return;
+        Uri target = OverlayForm.BuildOverlayUri(monitorIndex, primaryMonitor, true);
+        if (web.Source == null || !String.Equals(web.Source.AbsoluteUri, target.AbsoluteUri, StringComparison.OrdinalIgnoreCase)) web.Source = target;
+    }
+
+    private void EnsureTopMost()
+    {
+        if (IsDisposed || Disposing || !IsHandleCreated || !Visible) return;
+        try
+        {
+            SetWindowPos(Handle, HWND_TOPMOST, 0, 0, 0, 0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOSENDCHANGING);
+        }
+        catch { }
     }
 }
 

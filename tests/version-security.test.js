@@ -8,16 +8,19 @@ const root = path.resolve(__dirname, '..');
 const read = relative => fs.readFileSync(path.join(root, relative), 'utf8');
 const html = read(path.join('app', 'websocket-diagnose.html'));
 const bridge = read('EmbeddedBridge.ps1');
+const updateManifest = JSON.parse(read('update-manifest.json'));
 
-assert.equal(read('VERSION.txt').trim(), '1.2.2');
-assert.match(read('VersionInfo.cs'), /AssemblyFileVersion\("1\.2\.2\.0"\)/);
-assert.match(read('VersionInfo.cs'), /Current = "1\.2\.2"/);
-assert.match(read('UpdaterVersionInfo.cs'), /AssemblyInformationalVersion\("1\.2\.2"\)/);
-assert.match(read('README-FIRST.txt'), /^FreakShow 1\.2\.2/m);
+assert.equal(read('VERSION.txt').trim(), '1.3.1');
+assert.match(read('VersionInfo.cs'), /AssemblyFileVersion\("1\.3\.1\.0"\)/);
+assert.match(read('VersionInfo.cs'), /Current = "1\.3\.1"/);
+assert.match(read('UpdaterVersionInfo.cs'), /AssemblyInformationalVersion\("1\.3\.1"\)/);
+assert.match(read('README-FIRST.txt'), /^FreakShow 1\.3\.1/m);
+assert.equal(updateManifest.version, '1.3.1');
+assert.match(updateManifest.packageUrl, /\/v1\.3\.1\/FreakShow-update-1\.3\.1\.zip$/);
 
 assert.match(
   html,
-  /<script src="\/app\/overlay-link-recognizer\.js\?v=20260725-provider2"><\/script>/
+  /<script src="\/app\/overlay-link-recognizer\.js\?v=[^"]+"><\/script>/
 );
 assert.doesNotMatch(html, /<script src="overlay-link-recognizer\.js/);
 

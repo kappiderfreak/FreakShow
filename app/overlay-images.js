@@ -11,6 +11,12 @@
   if (window.__KAPPI_IMAGE_OVERLAYS_ACTIVE__) return;
   window.__KAPPI_IMAGE_OVERLAYS_ACTIVE__ = true;
 
+  // Laeuft diese Seite als Ausgabe fuer OBS oder als Overlay auf diesem PC?
+  var IS_OUTPUT = (function () {
+    try { return /[?&]outputViewer=1(?:&|$)/.test(String(window.location.search || '')); }
+    catch (e) { return false; }
+  })();
+
   var BRIDGE = location.origin + '/image-overlays';
   var LAYER_ID = 'kappi-image-overlays';
   var lastSig = '';
@@ -50,6 +56,9 @@
       if (!im || !im.path) continue;
       // Sichtbar, wenn dauerhaft an ODER per Trigger eingeblendet (Laufzeit-Toggle).
       var shown = (im.enabled !== false) || (trigState[im.id] === true);
+      // Zusaetzlich je Bild: Gaming-PC und OBS getrennt. Diese Seite kennt ihre
+      // Rolle an "outputViewer=1" in der Adresse.
+      if (shown) shown = IS_OUTPUT ? (im.showOutput !== false) : (im.showLocal !== false);
       if (!shown) continue;
       seen[im.id] = true;
       var wrap = document.getElementById('kappi-imgwrap-' + im.id);
