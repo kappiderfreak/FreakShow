@@ -49,6 +49,14 @@
     return 'https://unavatar.io/' + platformName(cfg.platform) + '/' + encodeURIComponent(String(cfg.name || '').toLowerCase());
   }
   function clampNum(v, d, min, max) { v = Number(v); if (!isFinite(v)) v = d; return Math.max(min, Math.min(max, v)); }
+  function contentScaleOf(cfg) { return clampNum(cfg && cfg.contentScale, 100, 25, 200) / 100; }
+  function scaledConfig(cfg) {
+    var copy = {};
+    for (var key in cfg) { if (Object.prototype.hasOwnProperty.call(cfg, key)) copy[key] = cfg[key]; }
+    copy.contentScale = clampNum(cfg && cfg.contentScale, 100, 25, 200);
+    copy.size = clampNum(cfg && cfg.size, 64, 16, 240) * (copy.contentScale / 100);
+    return copy;
+  }
   // Nur echte Strings/Zahlen zurueckgeben -> nie "[object Object]".
   function asStr(v) { return (typeof v === 'string') ? v : (typeof v === 'number' ? String(v) : ''); }
 
@@ -75,7 +83,10 @@
     el.className = 'kappi-er-name';
     el.textContent = name;
     var pos = cfg.namePos || 'bottom-left';
-    var m = '28px';
+    var scale = contentScaleOf(cfg);
+    el.style.fontSize = (26 * scale) + 'px';
+    el.style.padding = (6 * scale) + 'px ' + (14 * scale) + 'px';
+    var m = (28 * scale) + 'px';
     if (pos === 'bottom-left') { el.style.left = m; el.style.bottom = m; }
     else if (pos === 'bottom-right') { el.style.right = m; el.style.bottom = m; }
     else if (pos === 'top-left') { el.style.left = m; el.style.top = m; }
@@ -91,6 +102,7 @@
 
   function rain(cfg, displayName) {
     if (!cfg || !cfg.name) return;
+    cfg = scaledConfig(cfg);
     // Neue, gemeinsame Engine (Animationsarten + Regenbogen/Farbrand). Fällt auf
     // die alte einfache Variante zurück, falls emote-rain-anim.js nicht geladen ist.
     if (window.KappiRainAnim && window.KappiRainAnim.play) {

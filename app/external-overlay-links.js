@@ -91,6 +91,7 @@
       manualVersion: Math.max(0, toInt(link.manualVersion, 0)),
       transparentBg: link.transparentBg === true,
       muted: link.muted === true,
+      contentScale: normalizeContentScale(link.contentScale),
       crop: normalizeCrop(link.crop),
       area: normalizeArea(link.area)
     };
@@ -126,6 +127,13 @@
     if (out.left + out.right > 80) out.right = Math.max(0, 80 - out.left);
     if (out.top + out.bottom > 80) out.bottom = Math.max(0, 80 - out.top);
     return out;
+  }
+
+  function normalizeContentScale(value) {
+    var n = toInt(value, 100);
+    if (n < 25) n = 25;
+    if (n > 200) n = 200;
+    return n;
   }
 
   function cropIsActive(crop) {
@@ -891,6 +899,7 @@
     frame.style.top = area.preset === 'full' ? '0' : Math.round(area.y * scaleY) + 'px';
     frame.style.width = area.preset === 'full' ? '100vw' : Math.round(area.width * scaleX) + 'px';
     frame.style.height = area.preset === 'full' ? '100vh' : Math.round(area.height * scaleY) + 'px';
+    var contentScale = normalizeContentScale(link.contentScale) / 100;
 
     // Zuschnitt (Alt beim Ziehen einer Ecke): Der Inhalt behaelt seine Groesse, es
     // wird nur etwas abgeschnitten - wie in OBS. Dafuer rendert das iframe in voller,
@@ -908,12 +917,21 @@
       var fullH = visibleH / keepY;
       frame.style.width = Math.round(fullW * scaleX) + 'px';
       frame.style.height = Math.round(fullH * scaleY) + 'px';
-      frame.style.left = Math.round((visibleX - fullW * crop.left / 100) * scaleX) + 'px';
-      frame.style.top = Math.round((visibleY - fullH * crop.top / 100) * scaleY) + 'px';
+      // Die sichtbare linke obere Ecke bleibt auch bei zusaetzlicher Skalierung
+      // exakt an der gespeicherten Position. Ohne den Faktor wanderte ein
+      // zugeschnittenes Overlay beim Skalieren seitlich aus seinem Feld.
+      frame.style.left = Math.round((visibleX - fullW * crop.left / 100 * contentScale) * scaleX) + 'px';
+      frame.style.top = Math.round((visibleY - fullH * crop.top / 100 * contentScale) * scaleY) + 'px';
       frame.style.clipPath = 'inset(' + crop.top + '% ' + crop.right + '% ' + crop.bottom + '% ' + crop.left + '%)';
     } else {
       frame.style.clipPath = 'none';
     }
+
+    // Skaliert das komplette Web-Overlay mit seinem originalen Layout. Anders als
+    // beim Zuschneiden bleibt der gesamte Inhalt erhalten; die linke obere Ecke
+    // bleibt als Anker an der gespeicherten Position.
+    frame.style.transformOrigin = '0 0';
+    frame.style.transform = contentScale === 1 ? 'none' : ('scale(' + contentScale + ')');
 
     frame.style.border = '0';
     frame.style.margin = '0';
@@ -965,6 +983,7 @@
     return link.id + '|' + link.name + '|' + applyConnection(link) +
       '|bg' + (link.transparentBg === true ? '1' : '0') +
       '|mute' + (link.muted === true ? '1' : '0') +
+      '|scale' + normalizeContentScale(link.contentScale) +
       '|crop' + JSON.stringify(normalizeCrop(link.crop)) +
       '|' + JSON.stringify(normalizeArea(link.area));
   }

@@ -432,6 +432,8 @@ function Write-ExternalLinksJson {
       transparentBg = if ($null -ne $item.transparentBg) { [bool]$item.transparentBg } else { $false }
       # Ton dieses Web-Overlays stummschalten.
       muted = if ($null -ne $item.muted) { [bool]$item.muted } else { $false }
+      # Eigene Inhaltsskalierung neben dem Zuschnitt. 100 = unveraendert.
+      contentScale = Clamp-Int -Value $item.contentScale -Fallback 100 -Min 25 -Max 200
       # Zuschnitt in Prozent je Seite (Alt beim Ziehen einer Ecke). Der Inhalt behaelt
       # seine Groesse, es wird nur abgeschnitten - wie in OBS.
       crop = [ordered]@{
@@ -828,6 +830,7 @@ function Build-ImageOverlayJson {
   # WICHTIG: Farbe/Transparenz/Trigger MUESSEN durchgereicht werden, sonst erreichen sie
   # das Overlay nie (frueher gestrippt -> "eigene Farben funktionieren nicht").
   $opacity   = [math]::Round((ConvertTo-SafeDouble -Value $Item.opacity -Fallback 100 -Min 0 -Max 100), 0)
+  $contentScale = [math]::Round((ConvertTo-SafeDouble -Value $Item.contentScale -Fallback 100 -Min 25 -Max 200), 0)
   $colorOn   = if ($null -ne $Item.colorOn -and [bool]$Item.colorOn) { 'true' } else { 'false' }
   $color     = if ($null -ne $Item.color) { [string]$Item.color } else { '' }
   $triggerOn = if ($null -ne $Item.triggerOn -and [bool]$Item.triggerOn) { 'true' } else { 'false' }
@@ -835,7 +838,7 @@ function Build-ImageOverlayJson {
   # Je Bild getrennt: auf diesem PC zeigen / in der OBS-Ausgabe zeigen.
   $showLocal  = if ($null -ne $Item.showLocal -and -not [bool]$Item.showLocal) { 'false' } else { 'true' }
   $showOutput = if ($null -ne $Item.showOutput -and -not [bool]$Item.showOutput) { 'false' } else { 'true' }
-  return ('{"id":"' + (Escape-JsonString $id) + '","name":"' + (Escape-JsonString $name) + '","path":"' + (Escape-JsonString $path) + '","x":' + $x + ',"y":' + $y + ',"width":' + $w + ',"height":' + $h + ',"enabled":' + $enabled + ',"opacity":' + $opacity + ',"colorOn":' + $colorOn + ',"color":"' + (Escape-JsonString $color) + '","triggerOn":' + $triggerOn + ',"trigger":"' + (Escape-JsonString $trigger) + '","showLocal":' + $showLocal + ',"showOutput":' + $showOutput + '}')
+  return ('{"id":"' + (Escape-JsonString $id) + '","name":"' + (Escape-JsonString $name) + '","path":"' + (Escape-JsonString $path) + '","x":' + $x + ',"y":' + $y + ',"width":' + $w + ',"height":' + $h + ',"enabled":' + $enabled + ',"opacity":' + $opacity + ',"contentScale":' + $contentScale + ',"colorOn":' + $colorOn + ',"color":"' + (Escape-JsonString $color) + '","triggerOn":' + $triggerOn + ',"trigger":"' + (Escape-JsonString $trigger) + '","showLocal":' + $showLocal + ',"showOutput":' + $showOutput + '}')
 }
 
 function Read-ImageOverlaysJson {
@@ -1921,6 +1924,7 @@ function Build-CheatItemJson {
   $textOpacity = 100
   $font      = 'Segoe UI, sans-serif'
   $fontSize  = 18
+  $contentScale = 100
   # Position/Breite/Hoehe in PROZENT des Monitors (frei positionierbar per Ziehen).
   $x         = 66
   $y         = 6
@@ -1944,6 +1948,7 @@ function Build-CheatItemJson {
     if ($null -ne $o.textOpacity) { try { $textOpacity = [int][double]$o.textOpacity } catch {} }
     if ($null -ne $o.font)        { $font = [string]$o.font }
     if ($null -ne $o.fontSize)    { try { $fontSize = [int][double]$o.fontSize } catch {} }
+    if ($null -ne $o.contentScale) { try { $contentScale = [int][double]$o.contentScale } catch {} }
     if ($null -ne $o.x)           { try { $x = [double]$o.x } catch {} }
     if ($null -ne $o.y)           { try { $y = [double]$o.y } catch {} }
     if ($null -ne $o.width)       { try { $width = [double]$o.width } catch {} }
@@ -1956,6 +1961,7 @@ function Build-CheatItemJson {
   if ($bgOpacity -lt 0) { $bgOpacity = 0 }; if ($bgOpacity -gt 100) { $bgOpacity = 100 }
   if ($textOpacity -lt 0) { $textOpacity = 0 }; if ($textOpacity -gt 100) { $textOpacity = 100 }
   if ($fontSize -lt 8) { $fontSize = 8 }; if ($fontSize -gt 96) { $fontSize = 96 }
+  if ($contentScale -lt 25) { $contentScale = 25 }; if ($contentScale -gt 200) { $contentScale = 200 }
   if ($x -lt 0) { $x = 0 }; if ($x -gt 100) { $x = 100 }
   if ($y -lt 0) { $y = 0 }; if ($y -gt 100) { $y = 100 }
   if ($width -lt 5) { $width = 5 }; if ($width -gt 90) { $width = 90 }
@@ -1976,6 +1982,7 @@ function Build-CheatItemJson {
   [void]$sb.Append(',"textOpacity":' + $textOpacity)
   [void]$sb.Append(',"font":"' + (Escape-JsonString $font) + '"')
   [void]$sb.Append(',"fontSize":' + $fontSize)
+  [void]$sb.Append(',"contentScale":' + $contentScale)
   [void]$sb.Append(',"x":' + $x)
   [void]$sb.Append(',"y":' + $y)
   [void]$sb.Append(',"width":' + $width)
