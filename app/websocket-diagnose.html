@@ -1253,16 +1253,34 @@
     .cheat-nav-item.drop-before { box-shadow: inset 0 3px 0 -1px #83f28f; }
     .cheat-nav-item.drop-after { box-shadow: inset 0 -3px 0 -1px #83f28f; }
     .cheat-nav-empty { color: #8ea0b8; font-size: 12px; font-style: italic; padding: 8px; }
-    /* Slot 1: Monitor mittig/oben – EXAKT an derselben Stelle wie in Video/Bilder/Emoji
-       (max-width + margin:auto, per JS-Shift nach rechts). Das Textfeld sitzt ABSOLUT im
-       freien Bereich LINKS daneben und verschiebt den Monitor damit NICHT. */
-    .cheat-center { position: relative; width: 100%; min-width: 0; }
+    /* Slot 1: Texteditor und Monitor besitzen jeweils eine echte Grid-Spalte. Dadurch
+       bleibt das Textfeld auch in kleineren Fenstern anklickbar und kann nicht mehr
+       hinter der Monitor-Vorschau verschwinden. */
+    .cheat-center { position: relative; width: 100%; min-width: 0; container-type: inline-size; }
+    .cheat-center-layout {
+      display: grid;
+      grid-template-columns: minmax(260px, 340px) minmax(0, 1fr);
+      align-items: start;
+      gap: var(--ed-gap);
+      width: 100%;
+      min-width: 0;
+    }
     .cheat-monitor-fit { width: 100%; max-width: var(--ed-monitor-max); margin: 0 auto; }
     .cheat-center .cheat-text-field {
-      position: absolute; left: 0; top: 0; bottom: 30px; min-width: 0; margin: 0;
-      /* Nur die LINKE HÄLFTE des freien Bereichs bis zur Monitorkante -> schmaler/länglicher,
-         die rechte Hälfte bleibt als Platzhalter frei. (Freier Bereich = 50% - 290px.) */
-      width: calc((50% - 290px) / 2);
+      position: relative;
+      inset: auto;
+      width: 100%;
+      min-width: 0;
+      max-width: none;
+      margin: 0;
+      z-index: 1;
+    }
+    /* Entscheidend ist die tatsächlich verfügbare Breite des Monitor-Slots, nicht nur
+       die Fensterbreite. Das greift deshalb auch bei Browser-Zoom und geöffneter Sidebar. */
+    @container (max-width: 860px) {
+      .cheat-center-layout { grid-template-columns: minmax(0, 1fr); }
+      .cheat-center .cheat-text-field,
+      .cheat-monitor-fit { width: 100%; max-width: none; transform: none !important; }
     }
     /* Monitor: Seitenverhältnis wird per JS an den echten Monitor gesetzt; klein gehalten. */
     .cheat-monitor { position: relative; width: 100%; margin: 0 auto; aspect-ratio: 16 / 9; border-radius: var(--ed-monitor-radius); overflow: hidden;
@@ -2009,6 +2027,10 @@
     #workspace-view-links .link-card-settings select,
     #workspace-view-links .link-card-settings input.tiny { width: 100%; min-width: 0; }
     #workspace-view-links .link-setting-switch-row { width: 100%; }
+    #workspace-view-links .link-setting-range { grid-column: 1 / -1; }
+    #workspace-view-links .link-setting-range-row { display:flex; align-items:center; gap:10px; width:100%; }
+    #workspace-view-links .link-setting-range-row input[type="range"] { flex:1 1 auto; min-width:0; }
+    #workspace-view-links .link-setting-range-row output { min-width:58px; text-align:right; color:var(--t-accent,#83f28f); }
     #workspace-view-links .link-setting-switch-value {
       flex: 1 1 auto;
       min-width: 0;
@@ -6401,6 +6423,10 @@
                     <span>Größe</span>
                     <div class="er-row"><input id="image-size" type="range" min="5" max="100" step="1" value="30"><output id="image-size-val" class="er-val">30 %</output></div>
                   </div>
+                  <div class="er-field">
+                    <span>Skalierung</span>
+                    <div class="er-row"><input id="image-content-scale" type="range" min="25" max="200" step="5" value="100"><output id="image-content-scale-val" class="er-val">100 %</output></div>
+                  </div>
                 </div>
                 <!-- Aktionen (wie bei Emoji): Streamer.bot-Code + Löschen. -->
                 <div class="image-editor-actions ed-slot-actions" id="image-actions" hidden><!-- Slot 4 -->
@@ -7077,6 +7103,11 @@
                 </div>
 
                 <div class="er-field">
+                  <span>Skalierung</span>
+                  <div class="er-row"><input id="er-content-scale" type="range" min="25" max="200" step="5" value="100"><output id="er-content-scale-val" class="er-val">100 %</output></div>
+                </div>
+
+                <div class="er-field">
                   <span>Anzahl der Bilder</span>
                   <div class="er-row"><input id="er-count" type="range" min="1" max="60" step="1" value="16"><output id="er-count-val" class="er-val">16 Stk.</output></div>
                 </div>
@@ -7121,10 +7152,10 @@
                   <h2 id="cheat-editor-title">Text auswählen</h2>
                 </div>
                 <div class="cheat-editor-primary">
-                <!-- Slot 1: Textfeld LINKS + Monitor RECHTS daneben. -->
+                <!-- Slot 1: Textfeld und Monitor in einem responsiven Grid. -->
                 <div class="cheat-center ed-slot-monitor">
-                  <!-- Textfeld LINKS im freien Bereich (absolut positioniert) – der Monitor bleibt
-                       dadurch exakt an derselben Stelle wie in den anderen Tabs (mittig/oben). -->
+                  <div class="cheat-center-layout">
+                  <!-- Textfeld LINKS mit eigener Grid-Spalte; bei wenig Platz steht es oberhalb. -->
                   <div class="cheat-field cheat-text-field">
                     <span class="cheat-label">Text</span>
                     <div id="cheat-text" contenteditable="true" role="textbox" aria-multiline="true" spellcheck="false" data-placeholder="z. B.&#10;Boss-Phase 2: bei 50% raus&#10;Cooldowns: 20s / 45s" title="Text markieren + Rechtsklick: Fett / Kursiv / Unterstrichen / Überschriften / Liste / Tabelle (Markdown)"></div>
@@ -7159,6 +7190,7 @@
                       </div>
                     </div>
                   </div>
+                  </div><!-- /.cheat-center-layout -->
                 </div>
 
                 <!-- Slot 2: Einstellungen (rechte Spalte, wie #video-primary-fields) -->
@@ -7231,6 +7263,10 @@
                   <div class="cheat-field">
                     <span class="cheat-label">Breite</span>
                     <div class="cheat-slider-row"><input id="cheat-width" type="range" min="5" max="90" step="1" value="24"><output id="cheat-width-val" class="cheat-slider-val">24 %</output></div>
+                  </div>
+                  <div class="cheat-field">
+                    <span class="cheat-label">Skalierung</span>
+                    <div class="cheat-slider-row"><input id="cheat-content-scale" type="range" min="25" max="200" step="5" value="100"><output id="cheat-content-scale-val" class="cheat-slider-val">100 %</output></div>
                   </div>
                 </div>
 
@@ -12480,6 +12516,7 @@
               positionPreview: parsed[i].positionPreview === true,
               transparentBg: parsed[i].transparentBg === true,
               muted: parsed[i].muted === true,
+              contentScale: normalizeLinkContentScale(parsed[i].contentScale),
               crop: normalizeLinkCrop(parsed[i].crop),
               area: normalizeArea(parsed[i].area),
               visible: false
@@ -12512,6 +12549,7 @@
             positionPreview: linkItems[i].positionPreview === true,
             transparentBg: linkItems[i].transparentBg === true,
             muted: linkItems[i].muted === true,
+            contentScale: normalizeLinkContentScale(linkItems[i].contentScale),
             crop: normalizeLinkCrop(linkItems[i].crop),
             area: normalizeArea(linkItems[i].area)
           });
@@ -12646,6 +12684,18 @@
         if (out.left + out.right > 80) out.right = Math.max(0, 80 - out.left);
         if (out.top + out.bottom > 80) out.bottom = Math.max(0, 80 - out.top);
         return out;
+      }
+
+      function normalizeLinkContentScale(value) {
+        var n = parseInt(value, 10);
+        if (isNaN(n)) n = 100;
+        return Math.max(25, Math.min(200, n));
+      }
+
+      function linkVisualArea(item, area) {
+        area = clampAreaToMonitor(area);
+        var factor = normalizeLinkContentScale(item && item.contentScale) / 100;
+        return { preset: area.preset, x: area.x, y: area.y, width: area.width * factor, height: area.height * factor };
       }
 
       function normalizeArea(area) {
@@ -13177,6 +13227,19 @@
         // die rechte Feldspalte von der verfuegbaren Monitorzelle abgezogen werden.
         if (!stacked && primaryEl && primaryEl.querySelector) {
           var leadingSettings = primaryEl.querySelector('#video-bubble-options:not([hidden])');
+          // Bei Notizen steht das Textfeld jetzt in einer echten Spalte vor dem Monitor.
+          // Nur wenn beide wirklich in derselben Grid-Zeile liegen, wird seine Breite
+          // von der Monitorzelle abgezogen. Im responsiv gestapelten Layout erhält der
+          // Monitor dagegen wieder die volle Breite seiner eigenen Zeile.
+          if (!leadingSettings) {
+            var cheatTextField = primaryEl.querySelector('.cheat-center-layout > .cheat-text-field:not([hidden])');
+            var cheatMonitorFit = primaryEl.querySelector('.cheat-center-layout > .cheat-monitor-fit');
+            if (cheatTextField && cheatMonitorFit && cheatTextField.getBoundingClientRect && cheatMonitorFit.getBoundingClientRect) {
+              var cheatTextRect = cheatTextField.getBoundingClientRect();
+              var cheatMonitorRect = cheatMonitorFit.getBoundingClientRect();
+              if (Math.abs(cheatTextRect.top - cheatMonitorRect.top) < 4) leadingSettings = cheatTextField;
+            }
+          }
           if (leadingSettings && leadingSettings.getBoundingClientRect) {
             leadingSettingsW = leadingSettings.getBoundingClientRect().width || 0;
           }
@@ -14553,6 +14616,7 @@
           (function (item, idx) {
             var detail = linkPreviewText(item);
             var area = clampAreaToMonitor(item.area);
+            var visualArea = linkVisualArea(item, area);
             var rect = document.createElement('div');
             rect.className = 'link-card-screen-rect group-member editable' +
               (item.enabled === false ? ' off' : '') +
@@ -14560,8 +14624,8 @@
             rect.setAttribute('data-link-id', item.id);
             rect.style.left = (area.x / monitor.monitorWidth * 100) + '%';
             rect.style.top = (area.y / monitor.monitorHeight * 100) + '%';
-            rect.style.width = (area.width / monitor.monitorWidth * 100) + '%';
-            rect.style.height = (area.height / monitor.monitorHeight * 100) + '%';
+            rect.style.width = (visualArea.width / monitor.monitorWidth * 100) + '%';
+            rect.style.height = (visualArea.height / monitor.monitorHeight * 100) + '%';
             rect.style.zIndex = (item.id === selectedLinkId) ? '99999' : String(items.length - idx);
 
             var frameArea = { width: area.width, height: area.height };
@@ -14583,10 +14647,11 @@
             rect.appendChild(label);
 
             function paint(next) {
+              var visual = linkVisualArea(item, next);
               rect.style.left = (next.x / monitor.monitorWidth * 100) + '%';
               rect.style.top = (next.y / monitor.monitorHeight * 100) + '%';
-              rect.style.width = (next.width / monitor.monitorWidth * 100) + '%';
-              rect.style.height = (next.height / monitor.monitorHeight * 100) + '%';
+              rect.style.width = (visual.width / monitor.monitorWidth * 100) + '%';
+              rect.style.height = (visual.height / monitor.monitorHeight * 100) + '%';
               frameArea.width = next.width; frameArea.height = next.height;
               sub.textContent = (item.enabled === false ? 'Aus · ' : '') + next.width + 'x' + next.height;
               fitFrame(); window.setTimeout(fitFrame, 0);
@@ -14713,6 +14778,7 @@
         var sub = document.createElement('span');
         var monitor = readMonitorFields();
         var area = clampAreaToMonitor(item.area);
+        var visualArea = linkVisualArea(item, area);
         // Vorschau-Adresse: Anbieter mit Einbettungssperre laufen ueber den
         // Vorschau-Proxy der Bridge; ohne Proxy bleibt der Platzhalter.
         var editorPreviewUrl = previewFrameUrl(detail.url);
@@ -14726,8 +14792,8 @@
         rect.className = 'link-card-screen-rect editable';
         rect.style.left = (area.x / monitor.monitorWidth * 100) + '%';
         rect.style.top = (area.y / monitor.monitorHeight * 100) + '%';
-        rect.style.width = (area.width / monitor.monitorWidth * 100) + '%';
-        rect.style.height = (area.height / monitor.monitorHeight * 100) + '%';
+        rect.style.width = (visualArea.width / monitor.monitorWidth * 100) + '%';
+        rect.style.height = (visualArea.height / monitor.monitorHeight * 100) + '%';
         // Live-Vorschau originalgetreu: das iframe wird in der ECHTEN Feldgröße
         // (Monitor-Pixel) gerendert und dann per scale() ins Mini-Rechteck
         // verkleinert. Sonst layoutet die Seite für die Mini-Breite und sieht
@@ -14772,10 +14838,11 @@
         rect.appendChild(label);
 
         function paintLinkCardArea(nextArea) {
+          var nextVisualArea = linkVisualArea(item, nextArea);
           rect.style.left = (nextArea.x / monitor.monitorWidth * 100) + '%';
           rect.style.top = (nextArea.y / monitor.monitorHeight * 100) + '%';
-          rect.style.width = (nextArea.width / monitor.monitorWidth * 100) + '%';
-          rect.style.height = (nextArea.height / monitor.monitorHeight * 100) + '%';
+          rect.style.width = (nextVisualArea.width / monitor.monitorWidth * 100) + '%';
+          rect.style.height = (nextVisualArea.height / monitor.monitorHeight * 100) + '%';
           sub.textContent = 'Feld #' + itemNumber + ' | Eigenes Feld | X:' + nextArea.x + ' Y:' + nextArea.y +
             ' | ' + nextArea.width + 'x' + nextArea.height;
           // Vorschau-iframe an die neue Feldgröße anpassen (originalgetreue Skalierung).
@@ -15014,11 +15081,27 @@
         select.appendChild(option);
       }
 
+      // Dynamisch erzeugte Overlay-Einstellungen sofort übersetzen. Der deutsche
+      // Quelltext bleibt dabei am Textknoten/Attribut erhalten, damit ein späterer
+      // Sprachwechsel weiterhin ohne Neuladen funktioniert.
+      function setLinkSettingText(element, germanText) {
+        if (!element) return;
+        element.textContent = germanText;
+        var node = element.firstChild;
+        if (node && node.nodeType === 3 && typeof i18nNode === 'function') i18nNode(node, currentLang());
+      }
+
+      function setLinkSettingTitle(element, germanText) {
+        if (!element) return;
+        element.setAttribute('title', germanText);
+        if (typeof i18nAttr === 'function') i18nAttr(element, 'title', currentLang());
+      }
+
       function makeSettingLabel(text, control) {
         var label = document.createElement('label');
         var caption = document.createElement('span');
         label.className = 'video-setting link-setting-field';
-        caption.textContent = text;
+        setLinkSettingText(caption, text);
         label.appendChild(caption);
         label.appendChild(control);
         return label;
@@ -15033,16 +15116,16 @@
         var input = document.createElement('input');
         var track = document.createElement('span');
         field.className = 'video-setting link-setting-checkbox';
-        caption.textContent = text;
+        setLinkSettingText(caption, text);
         row.className = 'video-setting-row link-setting-switch-row';
         status.className = 'link-setting-switch-value';
-        status.textContent = checked ? 'An' : 'Aus';
+        setLinkSettingText(status, checked ? 'An' : 'Aus');
         switchLabel.className = 'switch link-persistent-switch' + (checked ? ' switch-on' : '');
         input.type = 'checkbox';
         input.checked = !!checked;
         input.onchange = function (event) {
           switchLabel.classList.toggle('switch-on', input.checked);
-          status.textContent = input.checked ? 'An' : 'Aus';
+          setLinkSettingText(status, input.checked ? 'An' : 'Aus');
           if (onChange) onChange(event);
         };
         track.className = 'switch-track';
@@ -15055,6 +15138,26 @@
         field.input = input;
         field.status = status;
         field.switchLabel = switchLabel;
+        return field;
+      }
+
+      function makeSettingRange(text, value, onChange) {
+        var field = document.createElement('label');
+        var caption = document.createElement('span');
+        var row = document.createElement('div');
+        var input = document.createElement('input');
+        var output = document.createElement('output');
+        field.className = 'video-setting link-setting-range';
+        setLinkSettingText(caption, text);
+        row.className = 'link-setting-range-row';
+        input.type = 'range'; input.min = '25'; input.max = '200'; input.step = '5';
+        input.value = String(normalizeLinkContentScale(value));
+        output.textContent = input.value + ' %';
+        input.addEventListener('input', function () { output.textContent = input.value + ' %'; if (typeof updateRangeFill === 'function') updateRangeFill(input); });
+        input.addEventListener('change', function () { if (onChange) onChange(normalizeLinkContentScale(input.value)); });
+        row.appendChild(input); row.appendChild(output);
+        field.appendChild(caption); field.appendChild(row);
+        if (typeof bindRangeFill === 'function') bindRangeFill(input);
         return field;
       }
 
@@ -15188,7 +15291,7 @@
             item.persistent = true;
             if (persistentField && persistentField.input) {
               persistentField.input.checked = true;
-              persistentField.status.textContent = 'An';
+              setLinkSettingText(persistentField.status, 'An');
               persistentField.switchLabel.classList.add('switch-on');
             }
           }
@@ -15313,8 +15416,9 @@
             ? 'Hintergrund wird bei diesem Overlay ausgeblendet – Text, Symbole und Emotes bleiben.'
             : 'Hintergrund wird bei diesem Overlay wieder angezeigt.', { name: item.name }, event.target.checked ? 'ok' : 'muted');
         });
-        transparentField.title = 'Blendet die eingefärbten Flächen hinter dem Inhalt aus, z. B. die Kacheln hinter Chat-Nachrichten. '
-          + 'Wirkt im Overlay-Fenster (nicht in der Vorschau dieser Seite). Text, Symbole und Emotes bleiben sichtbar.';
+        setLinkSettingTitle(transparentField,
+          'Blendet die eingefärbten Flächen hinter dem Inhalt aus, z. B. die Kacheln hinter Chat-Nachrichten. '
+          + 'Wirkt im Overlay-Fenster (nicht in der Vorschau dieser Seite). Text, Symbole und Emotes bleiben sichtbar.');
         settings.appendChild(transparentField);
 
         // Ton dieses Web-Overlays stummschalten (z. B. Alertbox ohne Sound).
@@ -15327,9 +15431,16 @@
             ? 'Ton für dieses Overlay ausgeschaltet.'
             : 'Ton für dieses Overlay wieder eingeschaltet.', { name: item.name }, event.target.checked ? 'ok' : 'muted');
         });
-        mutedField.title = 'Schaltet alle Töne dieses Web-Overlays stumm – auch die, die es später nachlädt. '
-          + 'Wirkt im Overlay-Fenster.';
+        setLinkSettingTitle(mutedField,
+          'Schaltet alle Töne dieses Web-Overlays stumm – auch die, die es später nachlädt. '
+          + 'Wirkt im Overlay-Fenster.');
         settings.appendChild(mutedField);
+        settings.appendChild(makeSettingRange('Skalierung', item.contentScale, function (value) {
+          item.contentScale = value;
+          item.visible = true;
+          saveStoredLinks();
+          renderLinks();
+        }));
         settings.appendChild(triggerField);
         settings.appendChild(makeSettingLabel('Größe', areaSelect));
         settings.appendChild(makeSettingLabel('Position', positionSelect));
@@ -16064,6 +16175,7 @@
             manualVersion: 0,
             positionPreview: true,
             transparentBg: false,
+            contentScale: 100,
             crop: { left: 0, top: 0, right: 0, bottom: 0 },
             area: area,
             visible: true
@@ -17503,7 +17615,9 @@
         'Name': 'Name', 'Videopfad': 'Video path',
         'Start im Video (Sekunden)': 'Start in video (seconds)', 'Anzeigedauer (Sekunden)': 'Display duration (seconds)',
         'Komplett abspielen': 'Play in full', 'Start:': 'Start:', 'Aktuell:': 'Current:', 'Ende:': 'End:',
-        'Lautstärke': 'Volume', 'Hintergrund entfernen': 'Remove background',
+        'Lautstärke': 'Volume', 'Hintergrund entfernen': 'Remove background', 'Ton aus': 'Mute sound', 'Skalierung': 'Content scale',
+        'Blendet die eingefärbten Flächen hinter dem Inhalt aus, z. B. die Kacheln hinter Chat-Nachrichten. Wirkt im Overlay-Fenster (nicht in der Vorschau dieser Seite). Text, Symbole und Emotes bleiben sichtbar.': 'Hides the tinted areas behind the content, such as the tiles behind chat messages. Applies in the overlay window (not in this page\'s preview). Text, symbols, and emotes remain visible.',
+        'Schaltet alle Töne dieses Web-Overlays stumm – auch die, die es später nachlädt. Wirkt im Overlay-Fenster.': 'Mutes all sound from this web overlay, including media loaded later. Applies in the overlay window.',
         'Farbausblendung aktiv': 'Chroma key active', 'Farbtoleranz': 'Color tolerance', 'Status': 'Status',
         'Im Overlay zeigen': 'Show in overlay', 'Streamer.bot-Code': 'Streamer.bot code',
         'Bildschirm füllen': 'Fill screen', '✓ Automatisch gespeichert': '✓ Saved automatically',
@@ -17582,7 +17696,9 @@
         'Name': 'Nombre', 'Videopfad': 'Ruta de vídeo',
         'Start im Video (Sekunden)': 'Inicio en el vídeo (segundos)', 'Anzeigedauer (Sekunden)': 'Duración (segundos)',
         'Komplett abspielen': 'Reproducir completo', 'Start:': 'Inicio:', 'Aktuell:': 'Actual:', 'Ende:': 'Fin:',
-        'Lautstärke': 'Volumen', 'Hintergrund entfernen': 'Quitar fondo',
+        'Lautstärke': 'Volumen', 'Hintergrund entfernen': 'Quitar fondo', 'Ton aus': 'Silenciar audio', 'Skalierung': 'Escala del contenido',
+        'Blendet die eingefärbten Flächen hinter dem Inhalt aus, z. B. die Kacheln hinter Chat-Nachrichten. Wirkt im Overlay-Fenster (nicht in der Vorschau dieser Seite). Text, Symbole und Emotes bleiben sichtbar.': 'Oculta las áreas coloreadas detrás del contenido, por ejemplo, los recuadros detrás de los mensajes del chat. Se aplica en la ventana del overlay (no en la vista previa de esta página). El texto, los símbolos y los emotes siguen visibles.',
+        'Schaltet alle Töne dieses Web-Overlays stumm – auch die, die es später nachlädt. Wirkt im Overlay-Fenster.': 'Silencia todo el audio de este overlay web, incluido el contenido que cargue más tarde. Se aplica en la ventana del overlay.',
         'Farbausblendung aktiv': 'Croma activo', 'Farbtoleranz': 'Tolerancia de color', 'Status': 'Estado',
         'Im Overlay zeigen': 'Mostrar en overlay', 'Streamer.bot-Code': 'Código de Streamer.bot',
         'Bildschirm füllen': 'Llenar pantalla', '✓ Automatisch gespeichert': '✓ Guardado automáticamente',
@@ -21552,6 +21668,7 @@
           mode: 'color', frameEnabled: true, backgroundEnabled: false,
           frameColor: '#101826', bgImage: '', bgImageName: '', bgOpacity: 85,
           textColor: '#e8f0ff', textOpacity: 100, font: 'Segoe UI, sans-serif', fontSize: 20,
+          contentScale: 100,
           trigger: '', triggerOn: false,
           // -1 = bisheriger globaler Overlay-Monitor.
           targetMonitor: -1                   // eigener physischer Ausgabe-Monitor
@@ -21579,6 +21696,7 @@
           textColor: p.textColor || d.textColor,
           textOpacity: (typeof p.textOpacity === 'number') ? p.textOpacity : d.textOpacity,
           font: p.font || d.font, fontSize: (typeof p.fontSize === 'number') ? p.fontSize : d.fontSize,
+          contentScale: cheatClamp(p.contentScale == null ? d.contentScale : p.contentScale, 25, 200),
           trigger: String(p.trigger || '').trim(), triggerOn: p.triggerOn === true,
           targetMonitor: (function (v) { v = parseInt(v, 10); return isNaN(v) ? -1 : Math.max(-1, v); })(p.targetMonitor)
         };
@@ -21612,6 +21730,7 @@
         p.font = byId('cheat-font') ? byId('cheat-font').value : p.font;
         p.fontSize = byId('cheat-font-size') ? Number(byId('cheat-font-size').value) : p.fontSize;
         p.width = byId('cheat-width') ? cheatClamp(byId('cheat-width').value, 5, 90) : p.width;
+        p.contentScale = byId('cheat-content-scale') ? cheatClamp(byId('cheat-content-scale').value, 25, 200) : (p.contentScale || 100);
         p.trigger = byId('cheat-trigger') ? String(byId('cheat-trigger').value || '').trim() : (p.trigger || '');
         p.triggerOn = byId('cheat-trigger-on') ? !!byId('cheat-trigger-on').checked : !!p.triggerOn;
         p.targetMonitor = byId('cheat-target-monitor') ? (function (v) { v = parseInt(v, 10); return isNaN(v) ? -1 : Math.max(-1, v); })(byId('cheat-target-monitor').value) : (p.targetMonitor == null ? -1 : p.targetMonitor);
@@ -21675,6 +21794,7 @@
         if (byId('cheat-font')) byId('cheat-font').value = p.font || 'Segoe UI, sans-serif';
         if (byId('cheat-font-size')) byId('cheat-font-size').value = (p.fontSize == null ? 20 : p.fontSize);
         if (byId('cheat-width')) byId('cheat-width').value = (p.width == null ? 24 : p.width);
+        if (byId('cheat-content-scale')) byId('cheat-content-scale').value = (p.contentScale == null ? 100 : p.contentScale);
         if (byId('cheat-trigger')) byId('cheat-trigger').value = p.trigger || '';
         if (byId('cheat-trigger-on')) { byId('cheat-trigger-on').checked = !!p.triggerOn; if (typeof syncSwitchOn === 'function') syncSwitchOn(byId('cheat-trigger-on').closest('label.switch')); }
         if (typeof fillOverlayTargetMonitorSelect === 'function') fillOverlayTargetMonitorSelect(byId('cheat-target-monitor'), p.targetMonitor);
@@ -21689,11 +21809,12 @@
         if (byId('cheat-image-wrap')) byId('cheat-image-wrap').hidden = false;
       }
       function cheatUpdateLabels() {
-        var bo = byId('cheat-bg-opacity'), to = byId('cheat-text-opacity'), fs = byId('cheat-font-size'), w = byId('cheat-width');
+        var bo = byId('cheat-bg-opacity'), to = byId('cheat-text-opacity'), fs = byId('cheat-font-size'), w = byId('cheat-width'), cs = byId('cheat-content-scale');
         if (bo && byId('cheat-bgop-val')) byId('cheat-bgop-val').textContent = bo.value + ' %';
         if (to && byId('cheat-txop-val')) byId('cheat-txop-val').textContent = to.value + ' %';
         if (fs && byId('cheat-fs-val')) byId('cheat-fs-val').textContent = fs.value + ' px';
         if (w && byId('cheat-width-val')) byId('cheat-width-val').textContent = w.value + ' %';
+        if (cs && byId('cheat-content-scale-val')) byId('cheat-content-scale-val').textContent = cs.value + ' %';
         var active = cheatActivePreset();
         if (byId('cheat-enabled-text')) byId('cheat-enabled-text').textContent = active && active.enabled ? 'An' : 'Aus';
       }
@@ -21737,13 +21858,15 @@
       }
       function cheatPaintMonitorBox(box, p, scale) {
         if (!box || !p) return;
-        var fieldHeight = Number(p.height) > 0 ? cheatClamp(p.height, 4, 95) : 0;
+        var contentScale = cheatClamp(p.contentScale == null ? 100 : p.contentScale, 25, 200) / 100;
+        var visualWidth = cheatClamp(p.width, 5, 90) * contentScale;
+        var fieldHeight = Number(p.height) > 0 ? cheatClamp(p.height, 4, 95) * contentScale : 0;
         var handlesVisible = cheatResizeHandlesVisible(p.id);
         box.classList.toggle('resize-handles-hidden', !handlesVisible);
         box.style.display = 'block';
-        box.style.left = cheatClamp(p.x, 0, 100) + '%';
+        box.style.left = cheatClamp(p.x, 0, Math.max(0, 100 - visualWidth)) + '%';
         box.style.top = cheatClamp(p.y, 0, fieldHeight > 0 ? (100 - fieldHeight) : 100) + '%';
-        box.style.width = cheatClamp(p.width, 5, 90) + '%';
+        box.style.width = visualWidth + '%';
         if (fieldHeight > 0) box.style.height = fieldHeight + '%';
         else box.style.removeProperty('height');
         // Rahmen/Innenabstand/Radius MASSSTABSGETREU verkleinern (scale = Vorschau-px / Monitorbreite),
@@ -21752,10 +21875,10 @@
         // alles viel zu groß.
         box.style.borderStyle = 'solid';
         box.style.borderColor = (p.frameEnabled !== false) ? (p.frameColor || '#101826') : 'transparent';
-        box.style.borderWidth = (2 * scale) + 'px';
-        box.style.padding = (10 * scale) + 'px ' + (12 * scale) + 'px';
-        box.style.borderRadius = (10 * scale) + 'px';
-        box.style.boxShadow = '0 ' + (6 * scale) + 'px ' + (24 * scale) + 'px rgba(0,0,0,.45)';
+        box.style.borderWidth = (2 * scale * contentScale) + 'px';
+        box.style.padding = (10 * scale * contentScale) + 'px ' + (12 * scale * contentScale) + 'px';
+        box.style.borderRadius = (10 * scale * contentScale) + 'px';
+        box.style.boxShadow = '0 ' + (6 * scale * contentScale) + 'px ' + (24 * scale * contentScale) + 'px rgba(0,0,0,.45)';
         box.title = (p.name || 'Text') + '\n' + cheatResizeHandleHint(handlesVisible);
         var bg = box.querySelector('.cheat-mon-bg'), txt = box.querySelector('.cheat-mon-text');
         if (p.backgroundEnabled && p.bgImage) {
@@ -21774,7 +21897,7 @@
         var previewImageEmojis = txt.querySelectorAll('img.kappi-note-image-emoji');
         for (var pie = 0; pie < previewImageEmojis.length; pie++) {
           var previewEmojiSize = cheatClamp(previewImageEmojis[pie].getAttribute('data-kappi-note-emoji-size'), 16, 256);
-          previewImageEmojis[pie].style.width = Math.max(1, previewEmojiSize * scale) + 'px';
+          previewImageEmojis[pie].style.width = Math.max(1, previewEmojiSize * scale * contentScale) + 'px';
           previewImageEmojis[pie].style.height = 'auto';
           previewImageEmojis[pie].style.maxWidth = '100%';
           previewImageEmojis[pie].style.objectFit = 'contain';
@@ -21785,8 +21908,8 @@
         // skaliert werden; sonst bricht dieselbe Tabelle hier anders um als im Overlay.
         var previewCells = txt.querySelectorAll('th, td');
         for (var pci = 0; pci < previewCells.length; pci++) {
-          previewCells[pci].style.borderWidth = (1 * scale) + 'px';
-          previewCells[pci].style.padding = (2 * scale) + 'px ' + (8 * scale) + 'px';
+          previewCells[pci].style.borderWidth = (1 * scale * contentScale) + 'px';
+          previewCells[pci].style.padding = (2 * scale * contentScale) + 'px ' + (8 * scale * contentScale) + 'px';
         }
         txt.style.color = p.textColor || '#e8f0ff';
         txt.style.opacity = String((p.textOpacity == null ? 100 : p.textOpacity) / 100);
@@ -21794,7 +21917,7 @@
         // KEIN Mindest-Klammern mehr (frueher Math.max(6,...)) – das blähte kleine Schriften auf und
         // machte die Vorschau deutlich größer als das echte Overlay. Jetzt 1:1 skaliert = WYSIWYG.
         // Line-height 1.35 wie im Overlay (endgame-cheatsheet.js), damit auch der Zeilenabstand passt.
-        txt.style.fontSize = Math.max(1, (p.fontSize || 20) * scale) + 'px';
+        txt.style.fontSize = Math.max(1, (p.fontSize || 20) * scale * contentScale) + 'px';
         txt.style.lineHeight = '1.35';
         // Eine gespeicherte Feldhöhe bleibt auch bei leerem Text sichtbar und ziehbar.
         txt.style.minHeight = fieldHeight > 0 ? '100%' : '0';
@@ -22854,28 +22977,29 @@
           var mr = mon.getBoundingClientRect();
           var br = box.getBoundingClientRect();
           var sx = ev.clientX, sy = ev.clientY;
+          var contentScale = cheatClamp(p.contentScale == null ? 100 : p.contentScale, 25, 200) / 100;
           var ow = cheatClamp(p.width, 5, 90);
-          var ox = cheatClamp(p.x, 0, 100 - ow);
-          var measuredHeight = br.height / Math.max(1, mr.height) * 100;
+          var ox = cheatClamp(p.x, 0, 100 - ow * contentScale);
+          var measuredHeight = br.height / Math.max(1, mr.height) * 100 / contentScale;
           var oh = Number(p.height) > 0 ? cheatClamp(p.height, 4, 95) : cheatClamp(measuredHeight, 4, 95);
-          var oy = cheatClamp(p.y, 0, 100 - oh);
+          var oy = cheatClamp(p.y, 0, 100 - oh * contentScale);
           box.classList.add('dragging');
           function move(e) {
             var dxPct = (e.clientX - sx) / Math.max(1, mr.width) * 100;
             var dyPct = (e.clientY - sy) / Math.max(1, mr.height) * 100;
             if (handle) {
               var newW = ow, newH = oh, newX = ox, newY = oy;
-              if (handle.indexOf('e') >= 0) newW = cheatClamp(ow + dxPct, 5, 100 - ox);
+              if (handle.indexOf('e') >= 0) newW = cheatClamp(ow + dxPct / contentScale, 5, (100 - ox) / contentScale);
               if (handle.indexOf('w') >= 0) {
-                var right = ox + ow;
-                newX = cheatClamp(ox + dxPct, 0, right - 5);
-                newW = right - newX;
+                var right = ox + ow * contentScale;
+                newX = cheatClamp(ox + dxPct, 0, right - 5 * contentScale);
+                newW = (right - newX) / contentScale;
               }
-              if (handle.indexOf('s') >= 0) newH = cheatClamp(oh + dyPct, 4, 100 - oy);
+              if (handle.indexOf('s') >= 0) newH = cheatClamp(oh + dyPct / contentScale, 4, (100 - oy) / contentScale);
               if (handle.indexOf('n') >= 0) {
-                var bottom = oy + oh;
-                newY = cheatClamp(oy + dyPct, 0, bottom - 4);
-                newH = bottom - newY;
+                var bottom = oy + oh * contentScale;
+                newY = cheatClamp(oy + dyPct, 0, bottom - 4 * contentScale);
+                newH = (bottom - newY) / contentScale;
               }
               p.width = newW;
               p.height = newH;
@@ -22884,8 +23008,8 @@
               if (byId('cheat-width')) byId('cheat-width').value = Math.round(p.width);
               cheatUpdateLabels();
             } else {
-              p.x = cheatClamp(ox + dxPct, 0, 100 - p.width);
-              p.y = cheatClamp(oy + dyPct, 0, 100 - oh);
+              p.x = cheatClamp(ox + dxPct, 0, 100 - p.width * contentScale);
+              p.y = cheatClamp(oy + dyPct, 0, 100 - oh * contentScale);
             }
             cheatRenderMonitor();
           }
@@ -22944,7 +23068,7 @@
 
       function initCheatsheet() {
         if (!byId('cheat-enabled')) return;
-        var ids = ['cheat-enabled', 'cheat-text', 'cheat-frame-enabled', 'cheat-background-enabled', 'cheat-frame-color', 'cheat-bg-opacity', 'cheat-text-opacity', 'cheat-font', 'cheat-font-size', 'cheat-width', 'cheat-trigger', 'cheat-trigger-on', 'cheat-target-monitor'];
+        var ids = ['cheat-enabled', 'cheat-text', 'cheat-frame-enabled', 'cheat-background-enabled', 'cheat-frame-color', 'cheat-bg-opacity', 'cheat-text-opacity', 'cheat-font', 'cheat-font-size', 'cheat-width', 'cheat-content-scale', 'cheat-trigger', 'cheat-trigger-on', 'cheat-target-monitor'];
         for (var i = 0; i < ids.length; i++) {
           var el = byId(ids[i]); if (!el) continue;
           var ev = (el.tagName === 'SELECT' || el.type === 'checkbox' || el.type === 'color') ? 'change' : 'input';
@@ -23588,12 +23712,24 @@
           x: num(it.x, 35, 0, 100), y: num(it.y, 35, 0, 100),
           width: num(it.width, 30, 1, 100), height: num(it.height, 30, 1, 100),
           opacity: num(it.opacity, 100, 0, 100),
+          contentScale: num(it.contentScale, 100, 25, 200),
           color: /^#[0-9a-fA-F]{3,8}$/.test(String(it.color || '')) ? String(it.color) : '',
           colorOn: it.colorOn === true,
           trigger: String(it.trigger || '').trim(),
           triggerOn: it.triggerOn === true,
           enabled: it.enabled !== false
         };
+      }
+
+      function imageContentScale(im) {
+        var value = Number(im && im.contentScale);
+        if (!isFinite(value)) value = 100;
+        return Math.max(25, Math.min(200, value)) / 100;
+      }
+
+      function imageVisualSize(im) {
+        var scale = imageContentScale(im);
+        return { width: Number(im.width || 0) * scale, height: Number(im.height || 0) * scale };
       }
 
       function applyImageMonitorAspect() {
@@ -24155,26 +24291,28 @@
           selectedImageId = im.id;
           var mr = mon.getBoundingClientRect();
           var sx = startX, sy = startY, ox = im.x, oy = im.y, ow = im.width, oh = im.height;
+          var scaleFactor = imageContentScale(im);
           var liveSave = 0;
           function move(e) {
             e.preventDefault();
             var dx = (e.clientX - sx) / mr.width * 100, dy = (e.clientY - sy) / mr.height * 100;
             if (mode === 'move') {
-              im.x = imgClamp(ox + dx, 0, 100 - ow); im.y = imgClamp(oy + dy, 0, 100 - oh);
+              im.x = imgClamp(ox + dx, 0, Math.max(0, 100 - ow * scaleFactor)); im.y = imgClamp(oy + dy, 0, Math.max(0, 100 - oh * scaleFactor));
             } else {
               var nx = ox, ny = oy, nw = ow, nh = oh;
-              if (mode.indexOf('e') >= 0) nw = ow + dx;
-              if (mode.indexOf('s') >= 0) nh = oh + dy;
-              if (mode.indexOf('w') >= 0) { nw = ow - dx; nx = ox + dx; }
-              if (mode.indexOf('n') >= 0) { nh = oh - dy; ny = oy + dy; }
+              if (mode.indexOf('e') >= 0) nw = ow + dx / scaleFactor;
+              if (mode.indexOf('s') >= 0) nh = oh + dy / scaleFactor;
+              if (mode.indexOf('w') >= 0) { nw = ow - dx / scaleFactor; nx = ox + dx; }
+              if (mode.indexOf('n') >= 0) { nh = oh - dy / scaleFactor; ny = oy + dy; }
               nw = Math.max(3, nw); nh = Math.max(3, nh);
               if (nx < 0) { nw += nx; nx = 0; }
               if (ny < 0) { nh += ny; ny = 0; }
-              if (nx + nw > 100) nw = 100 - nx;
-              if (ny + nh > 100) nh = 100 - ny;
+              if (nx + nw * scaleFactor > 100) nw = (100 - nx) / scaleFactor;
+              if (ny + nh * scaleFactor > 100) nh = (100 - ny) / scaleFactor;
               im.x = nx; im.y = ny; im.width = nw; im.height = nh;
             }
-            rect.style.left = im.x + '%'; rect.style.top = im.y + '%'; rect.style.width = im.width + '%'; rect.style.height = im.height + '%';
+            var visualSize = imageVisualSize(im);
+            rect.style.left = im.x + '%'; rect.style.top = im.y + '%'; rect.style.width = visualSize.width + '%'; rect.style.height = visualSize.height + '%';
             // Gedrosselt live speichern, damit das Overlay dem Ziehen folgt.
             var now = Date.now();
             if (now - liveSave > 140) { liveSave = now; saveImageOverlays(); }
@@ -24302,7 +24440,8 @@
             var rect = document.createElement('div');
             rect.className = 'image-rect' + (im.id === selectedImageId ? ' selected' : '') + (im.enabled ? '' : ' off');
             rect.setAttribute('data-img-id', im.id);
-            rect.style.left = im.x + '%'; rect.style.top = im.y + '%'; rect.style.width = im.width + '%'; rect.style.height = im.height + '%';
+            var initialVisualSize = imageVisualSize(im);
+            rect.style.left = im.x + '%'; rect.style.top = im.y + '%'; rect.style.width = initialVisualSize.width + '%'; rect.style.height = initialVisualSize.height + '%';
             // Vorschau und echtes Overlay verwenden dieselbe Priorität: erstes Bild/P1 liegt vorne.
             // Die Auswahl verändert die Ebene nicht mehr, damit Überdeckungen exakt übereinstimmen.
             rect.style.zIndex = String(imageOverlays.length - imageOverlays.indexOf(im));
@@ -24536,8 +24675,9 @@
       function applyImageRectLive(im) {
         var rect = document.querySelector('.image-rect[data-img-id="' + im.id + '"]');
         if (!rect) return;
+        var visualSize = imageVisualSize(im);
         rect.style.left = im.x + '%'; rect.style.top = im.y + '%';
-        rect.style.width = im.width + '%'; rect.style.height = im.height + '%';
+        rect.style.width = visualSize.width + '%'; rect.style.height = visualSize.height + '%';
         rect.style.opacity = im.enabled ? String((im.opacity != null ? im.opacity : 100) / 100) : '';
         var tint = rect.querySelector('.image-rect-tint');
         if (im.colorOn && im.color) {
@@ -24592,6 +24732,10 @@
         var szVal = Math.round(im.width || 30);
         if (sz) sz.value = szVal;
         if (szv) szv.textContent = szVal + ' %';
+        var cs = byId('image-content-scale'), csv = byId('image-content-scale-val');
+        var csVal = Math.round(im.contentScale == null ? 100 : im.contentScale);
+        if (cs) cs.value = csVal;
+        if (csv) csv.textContent = csVal + ' %';
         var cm = byId('image-color-mode'), cv = byId('image-color-value');
         if (cm) cm.value = im.colorOn ? 'tint' : 'none';
         if (cv) { cv.value = im.color || '#83f28f'; cv.disabled = !im.colorOn; }
@@ -24662,6 +24806,13 @@
           var im = imageById(selectedImageId); if (!im) return;
           setImageSize(im, parseInt(sz.value, 10) || 30);
           var szv = byId('image-size-val'); if (szv) szv.textContent = Math.round(im.width) + ' %';
+          applyImageRectLive(im); saveImageOverlaysSoon();
+        }); }
+        var cs = byId('image-content-scale');
+        if (cs) { bindRangeFill(cs); cs.addEventListener('input', function () {
+          var im = imageById(selectedImageId); if (!im) return;
+          im.contentScale = Math.max(25, Math.min(200, parseInt(cs.value, 10) || 100));
+          var csv = byId('image-content-scale-val'); if (csv) csv.textContent = Math.round(im.contentScale) + ' %';
           applyImageRectLive(im); saveImageOverlaysSoon();
         }); }
         var cm = byId('image-color-mode');
@@ -25593,6 +25744,7 @@
           userId: String(u.userId || '').trim(),
           enabled: u.enabled !== false,
           size: erNum(u.size, 64, 24, 160),
+          contentScale: erNum(u.contentScale, 100, 25, 200),
           count: erNum(u.count, 16, 1, 60),
           opacity: erNum(u.opacity, 100, 0, 100),
           colorMode: (['original', 'bw', 'tint', 'rainbow', 'border'].indexOf(u.colorMode) >= 0) ? u.colorMode : 'original',
@@ -25907,6 +26059,7 @@
       }
       function erUpdateEditorLabels() {
         byId('er-size-val').textContent = byId('er-size').value + ' px';
+        if (byId('er-content-scale') && byId('er-content-scale-val')) byId('er-content-scale-val').textContent = byId('er-content-scale').value + ' %';
         byId('er-count-val').textContent = byId('er-count').value + ' ' + erCountUnit();
         if (byId('er-opacity') && byId('er-opacity-val')) byId('er-opacity-val').textContent = byId('er-opacity').value + ' %';
         byId('er-color-value').disabled = byId('er-color-mode').value !== 'tint';
@@ -25954,6 +26107,7 @@
         byId('er-editor-title').textContent = u.displayName || u.name;
         (function (im) { if (!im) return; im.style.visibility = ''; im.onerror = function () { this.style.visibility = 'hidden'; }; im.src = erAvatarFor(u); })(byId('er-editor-avatar'));
         byId('er-size').value = u.size;
+        if (byId('er-content-scale')) byId('er-content-scale').value = (u.contentScale == null ? 100 : u.contentScale);
         byId('er-count').value = u.count;
         if (byId('er-opacity')) byId('er-opacity').value = (u.opacity == null ? 100 : u.opacity);
         byId('er-color-mode').value = u.colorMode;
@@ -25973,6 +26127,7 @@
         var u = erSelectedUser(); if (!u) return;
         // „Aktiv" wird jetzt nur noch über die linke Liste geschaltet.
         u.size = erNum(byId('er-size').value, 64, 24, 160);
+        if (byId('er-content-scale')) u.contentScale = erNum(byId('er-content-scale').value, 100, 25, 200);
         u.count = erNum(byId('er-count').value, 16, 1, 60);
         if (byId('er-opacity')) u.opacity = erNum(byId('er-opacity').value, 100, 0, 100);
         u.colorMode = byId('er-color-mode').value;
@@ -26019,7 +26174,10 @@
         var H = mon.clientHeight || Math.round(W * mh / mw);
         // Emoji-Größe proportional zum Monitor herunterskalieren.
         var scale = W / mw;
-        window.KappiRainAnim.play(u, mon, {
+        var previewUser = {};
+        for (var key in u) if (Object.prototype.hasOwnProperty.call(u, key)) previewUser[key] = u[key];
+        previewUser.size = u.size * (erNum(u.contentScale, 100, 25, 200) / 100);
+        window.KappiRainAnim.play(previewUser, mon, {
           fixed: false, width: W, height: H, sizeScale: scale,
           avatarUrl: (typeof erAvatarFor === 'function' ? erAvatarFor(u) : undefined),
           displayName: u.displayName || u.name
@@ -26519,7 +26677,7 @@
         var grpBtn = byId('er-group-btn'); if (grpBtn) grpBtn.onclick = erCreateGroup;
         erRosterLoad();
         erRequestViewers();
-        ['er-size', 'er-count', 'er-opacity', 'er-animation', 'er-shape', 'er-color-mode', 'er-color-value', 'er-show-name', 'er-name-pos', 'er-trigger-on'].forEach(function (id) {
+        ['er-size', 'er-content-scale', 'er-count', 'er-opacity', 'er-animation', 'er-shape', 'er-color-mode', 'er-color-value', 'er-show-name', 'er-name-pos', 'er-trigger-on'].forEach(function (id) {
           var el = byId(id); if (el) { el.addEventListener('input', erUpdateFromForm); el.addEventListener('change', erUpdateFromForm); }
         });
         var rm = byId('er-remove-btn'); if (rm) rm.onclick = erRemoveUser;

@@ -228,9 +228,10 @@
       var nm = document.createElement('div');
       nm.className = 'kappi-ra-name';
       nm.textContent = opts.displayName || cfg.name;
-      if (!fixed) nm.style.fontSize = Math.max(9, Math.round(H * 0.06)) + 'px';
+      var contentScale = clampNum(cfg.contentScale, 100, 25, 200) / 100;
+      nm.style.fontSize = (fixed ? Math.max(9, Math.round(26 * contentScale)) : Math.max(9, Math.round(H * 0.06 * contentScale))) + 'px';
       var pos = cfg.namePos || 'bottom-left';
-      var m = (fixed ? 28 : Math.max(6, Math.round(H * 0.04))) + 'px';
+      var m = (fixed ? Math.max(6, Math.round(28 * contentScale)) : Math.max(6, Math.round(H * 0.04 * contentScale))) + 'px';
       if (pos === 'bottom-left') { nm.style.left = m; nm.style.bottom = m; }
       else if (pos === 'bottom-right') { nm.style.right = m; nm.style.bottom = m; }
       else if (pos === 'top-left') { nm.style.left = m; nm.style.top = m; }

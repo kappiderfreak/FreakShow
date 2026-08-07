@@ -24,6 +24,12 @@
   var trigState = {};    // Laufzeit-Umschaltung je Bild-ID (per Streamer.bot-Trigger, NICHT persistiert)
   var lastEnabledById = {}; // zuletzt gesehener Schalter-Zustand je Bild (Flanken-Erkennung)
 
+  function contentScaleOf(image) {
+    var value = Number(image && image.contentScale);
+    if (!isFinite(value)) value = 100;
+    return Math.max(25, Math.min(200, value)) / 100;
+  }
+
   function ensureLayer() {
     var l = document.getElementById(LAYER_ID);
     if (!l) {
@@ -79,8 +85,9 @@
       if (img && img.getAttribute('data-src') !== im.path) { img.setAttribute('data-src', im.path); img.src = im.path; }
       wrap.style.left = im.x + '%';
       wrap.style.top = im.y + '%';
-      wrap.style.width = im.width + '%';
-      wrap.style.height = im.height + '%';
+      var contentScale = contentScaleOf(im);
+      wrap.style.width = (Number(im.width || 0) * contentScale) + '%';
+      wrap.style.height = (Number(im.height || 0) * contentScale) + '%';
       // Transparenz (0..100 -> 0..1).
       var op = (typeof im.opacity === 'number') ? im.opacity : 100;
       wrap.style.opacity = (op < 100) ? String(Math.max(0, op) / 100) : '1';

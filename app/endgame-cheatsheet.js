@@ -189,12 +189,13 @@
     // Position/Breite/Hoehe in PROZENT des Monitors (frei positionierbar, pro Text).
     var x = clampNum(cfg.x, 0, 100, 66);
     var y = clampNum(cfg.y, 0, 100, 6);
-    var width = clampNum(cfg.width, 5, 90, 24);
-    var height = clampNum(cfg.height, 0, 95, 0);
+    var contentScale = clampNum(cfg.contentScale, 25, 200, 100) / 100;
+    var width = clampNum(cfg.width, 5, 90, 24) * contentScale;
+    var height = clampNum(cfg.height, 0, 95, 0) * contentScale;
     if (height > 0 && height < 4) height = 4;
-    x = Math.min(x, 100 - width);
-    if (height > 0) y = Math.min(y, 100 - height);
-    var fontSize = clampNum(cfg.fontSize, 8, 96, 20);
+    x = Math.min(x, Math.max(0, 100 - width));
+    if (height > 0) y = Math.min(y, Math.max(0, 100 - height));
+    var fontSize = clampNum(cfg.fontSize, 8, 96, 20) * contentScale;
     var bgOpacity = clampNum(cfg.bgOpacity, 0, 100, 85) / 100;
     var textOpacity = clampNum(cfg.textOpacity, 0, 100, 100) / 100;
     var frameColor = cfg.frameColor || '#101826';
@@ -207,8 +208,9 @@
       + ' left:' + x + 'vw; top:' + y + 'vh; width:' + width + 'vw;'
       + (height > 0 ? ' height:' + height + 'vh;' : '')
       + ' max-width:calc(100vw - 6px); max-height:calc(100vh - 6px); overflow:hidden;'
-      + ' padding:10px 12px; border-radius:10px; border:2px solid ' + (frameEnabled ? frameColor : 'transparent') + ';'
-      + ' box-shadow:0 6px 24px rgba(0,0,0,.45);';
+      + ' padding:' + (10 * contentScale) + 'px ' + (12 * contentScale) + 'px;'
+      + ' border-radius:' + (10 * contentScale) + 'px; border:' + (2 * contentScale) + 'px solid ' + (frameEnabled ? frameColor : 'transparent') + ';'
+      + ' box-shadow:0 ' + (6 * contentScale) + 'px ' + (24 * contentScale) + 'px rgba(0,0,0,.45);';
 
     var bg = el.querySelector('.kcs-bg');
     if (backgroundEnabled && String(cfg.bgImage || '').trim()) {
@@ -233,7 +235,7 @@
     var imageEmojis = txt.querySelectorAll('img.kappi-note-image-emoji');
     for (var ie = 0; ie < imageEmojis.length; ie++) {
       var imageEmojiSize = clampNum(imageEmojis[ie].getAttribute('data-kappi-note-emoji-size'), 16, 256, 48);
-      imageEmojis[ie].style.width = imageEmojiSize + 'px';
+      imageEmojis[ie].style.width = (imageEmojiSize * contentScale) + 'px';
       imageEmojis[ie].style.height = 'auto';
       imageEmojis[ie].style.maxWidth = '100%';
       imageEmojis[ie].style.objectFit = 'contain';

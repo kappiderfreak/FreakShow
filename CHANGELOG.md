@@ -1,5 +1,18 @@
 # FreakShow – Änderungen
 
+## 1.4.0
+
+### Neu
+
+- Inhalts-Skalierung von 25 bis 200 Prozent für Bilder, Notizen, Web-Overlays und den Roten Teppich; Videos behalten ihre eigene Größen- und Positionssteuerung
+- Skalierung wird in Vorschau, Gaming-PC-Ausgabe und OBS/HTML-Ausgabe einheitlich übernommen
+
+### Verbessert und korrigiert
+
+- der Notizen-Editor bleibt bei normalem Browser-Zoom und kleineren Fenstern vollständig sichtbar; Textfeld, Monitor und Einstellungen überdecken sich nicht mehr
+- dynamisch erzeugte Overlay-Einstellungen, An/Aus-Werte und Hilfetexte wechseln zuverlässig zwischen Deutsch, Englisch und Spanisch
+- die Monitorberechnung berücksichtigt die echte Textspalte und passt sich beim responsiven Stapeln automatisch an
+
 ## 1.3.1
 
 ### Neu und verbessert
