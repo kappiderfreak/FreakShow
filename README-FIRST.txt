@@ -1,7 +1,7 @@
-FreakShow 1.4.0
+FreakShow 1.4.1
 ===============
 
-Diese Veroeffentlichung enthaelt den Funktionsstand 1.4.0.
+Diese Veroeffentlichung enthaelt den Funktionsstand 1.4.1.
 Eine vollstaendige Aenderungsliste steht in CHANGELOG.md.
 
 DEUTSCH
