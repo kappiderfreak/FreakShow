@@ -881,6 +881,11 @@
     var sourceHeight = bridgeMonitorHeight || window.innerHeight || 1080;
     var scaleX = (window.innerWidth || sourceWidth) / sourceWidth;
     var scaleY = (window.innerHeight || sourceHeight) / sourceHeight;
+    var contentScale = normalizeContentScale(link.contentScale) / 100;
+    var baseWidth = area.preset === 'full' ? sourceWidth : Math.min(area.width, sourceWidth);
+    var baseHeight = area.preset === 'full' ? sourceHeight : Math.min(area.height, sourceHeight);
+    var visualX = area.preset === 'full' ? 0 : Math.max(0, Math.min(area.x, Math.max(0, sourceWidth - baseWidth * contentScale)));
+    var visualY = area.preset === 'full' ? 0 : Math.max(0, Math.min(area.y, Math.max(0, sourceHeight - baseHeight * contentScale)));
     frame.title = link.name || 'External Overlay';
     // Kein Referer senden -> wie eine OBS-Browserquelle. Streamlabs & Co. liefern
     // sonst 404, wenn ein fremder Referer (127.0.0.1:<Port>) mitgeschickt wird.
@@ -895,11 +900,10 @@
     frame.allow = 'autoplay; fullscreen; clipboard-read; clipboard-write; local-network-access';
     frame.setAttribute('allowtransparency', 'true');
     frame.style.position = 'absolute';
-    frame.style.left = area.preset === 'full' ? '0' : Math.round(area.x * scaleX) + 'px';
-    frame.style.top = area.preset === 'full' ? '0' : Math.round(area.y * scaleY) + 'px';
-    frame.style.width = area.preset === 'full' ? '100vw' : Math.round(area.width * scaleX) + 'px';
-    frame.style.height = area.preset === 'full' ? '100vh' : Math.round(area.height * scaleY) + 'px';
-    var contentScale = normalizeContentScale(link.contentScale) / 100;
+    frame.style.left = Math.round(visualX * scaleX) + 'px';
+    frame.style.top = Math.round(visualY * scaleY) + 'px';
+    frame.style.width = area.preset === 'full' ? '100vw' : Math.round(baseWidth * scaleX) + 'px';
+    frame.style.height = area.preset === 'full' ? '100vh' : Math.round(baseHeight * scaleY) + 'px';
 
     // Zuschnitt (Alt beim Ziehen einer Ecke): Der Inhalt behaelt seine Groesse, es
     // wird nur etwas abgeschnitten - wie in OBS. Dafuer rendert das iframe in voller,
@@ -907,10 +911,10 @@
     // genau im eingestellten Feld sitzt.
     var crop = normalizeCrop(link.crop);
     if (cropIsActive(crop)) {
-      var visibleX = area.preset === 'full' ? 0 : area.x;
-      var visibleY = area.preset === 'full' ? 0 : area.y;
-      var visibleW = area.preset === 'full' ? sourceWidth : area.width;
-      var visibleH = area.preset === 'full' ? sourceHeight : area.height;
+      var visibleX = visualX;
+      var visibleY = visualY;
+      var visibleW = baseWidth;
+      var visibleH = baseHeight;
       var keepX = Math.max(0.2, 1 - (crop.left + crop.right) / 100);
       var keepY = Math.max(0.2, 1 - (crop.top + crop.bottom) / 100);
       var fullW = visibleW / keepX;

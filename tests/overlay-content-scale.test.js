@@ -31,6 +31,10 @@ assert.match(bridge, /"contentScale":/);
 // Original-Layout statt lediglich die sichtbare Box neu umbrechen zu lassen.
 assert.match(links, /frame\.style\.transform = contentScale === 1 \? 'none' : \('scale\('/);
 assert.match(links, /transformOrigin = '0 0'/);
+assert.match(html, /function clampLinkAreaToMonitor\(item, area\)/);
+assert.match(html, /MONITOR_WIDTH - area\.width \* factor/);
+assert.match(html, /monitor\.monitorWidth - startArea\.width \* contentFactor/);
+assert.match(links, /sourceWidth - baseWidth \* contentScale/);
 assert.match(images, /Number\(im\.width \|\| 0\) \* contentScale/);
 assert.match(notes, /cfg\.width[^\r\n]*\* contentScale/);
 assert.match(carpet, /copy\.size[^\r\n]*\* \(copy\.contentScale \/ 100\)/);

@@ -1,5 +1,12 @@
 # FreakShow – Änderungen
 
+## 1.4.1
+
+### Korrigiert
+
+- verkleinerte Web-Overlays lassen sich wieder vollständig bis an den rechten und unteren Monitorrand verschieben
+- Vorschau, Gruppenansicht, Positionsrahmen und echte Overlay-Ausgabe verwenden dieselben skalierten Bewegungsgrenzen
+
 ## 1.4.0
 
 ### Neu

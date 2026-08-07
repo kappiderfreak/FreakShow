@@ -12692,10 +12692,27 @@
         return Math.max(25, Math.min(200, n));
       }
 
-      function linkVisualArea(item, area) {
-        area = clampAreaToMonitor(area);
+      function clampLinkAreaToMonitor(item, area) {
+        area = normalizeArea(area);
+        if (area.preset === 'full') {
+          area.x = 0;
+          area.y = 0;
+          area.width = MONITOR_WIDTH;
+          area.height = MONITOR_HEIGHT;
+          return area;
+        }
+        area.width = Math.min(area.width, MONITOR_WIDTH);
+        area.height = Math.min(area.height, MONITOR_HEIGHT);
         var factor = normalizeLinkContentScale(item && item.contentScale) / 100;
-        return { preset: area.preset, x: area.x, y: area.y, width: area.width * factor, height: area.height * factor };
+        area.x = Math.min(area.x, Math.max(0, MONITOR_WIDTH - area.width * factor));
+        area.y = Math.min(area.y, Math.max(0, MONITOR_HEIGHT - area.height * factor));
+        return area;
+      }
+
+      function linkVisualArea(item, area) {
+        area = clampLinkAreaToMonitor(item, area);
+        var factor = normalizeLinkContentScale(item && item.contentScale) / 100;
+        return { preset: factor === 1 ? area.preset : 'custom', x: area.x, y: area.y, width: area.width * factor, height: area.height * factor };
       }
 
       function normalizeArea(area) {
@@ -13363,7 +13380,7 @@
           if (!linkItems[i].persistent) continue;
           if (selected && linkItems[i].id === selected.id) continue;
           screen.appendChild(createPreviewRect(
-            linkItems[i].area,
+            linkVisualArea(linkItems[i], linkItems[i].area),
             linkItems[i].name,
             'saved' + (linkItems[i].enabled === false ? ' disabled' : ''),
             dims,
@@ -13376,7 +13393,7 @@
         var label = selected ? selected.name : 'Aktuelles Feld';
         var detail = selected ? linkPreviewText(selected) : 'Noch keinem gespeicherten Link zugeordnet';
         screen.appendChild(createPreviewRect(
-          current,
+          selected ? linkVisualArea(selected, current) : current,
           label,
           'current' + (selected && selected.enabled === false ? ' disabled' : ''),
           dims,
@@ -13392,10 +13409,12 @@
         if (borderHandle) { startPreviewResize(event, borderHandle); return; }
         event.preventDefault();
         var dims = previewDimensions();
-        var area = clampAreaToMonitor(areaFromFields());
+        var item = selectedLink();
+        var area = item ? clampLinkAreaToMonitor(item, areaFromFields()) : clampAreaToMonitor(areaFromFields());
         area.preset = 'custom';
         previewDrag = {
           mode: 'move',
+          item: item,
           startX: event.clientX,
           startY: event.clientY,
           area: area,
@@ -13409,10 +13428,12 @@
         event.preventDefault();
         event.stopPropagation();
         var dims = previewDimensions();
-        var area = clampAreaToMonitor(areaFromFields());
+        var item = selectedLink();
+        var area = item ? clampLinkAreaToMonitor(item, areaFromFields()) : clampAreaToMonitor(areaFromFields());
         area.preset = 'custom';
         previewDrag = {
           mode: 'resize',
+          item: item,
           handle: forcedHandle || (event.currentTarget && event.currentTarget.dataset ? event.currentTarget.dataset.resize : '') || 'se',
           startX: event.clientX,
           startY: event.clientY,
@@ -13457,8 +13478,9 @@
             nextHeight = area.height + area.y - nextY;
           }
         } else {
-          nextX = Math.max(0, Math.min(area.x + dx, Math.max(0, previewDrag.dims.monitorWidth - area.width)));
-          nextY = Math.max(0, Math.min(area.y + dy, Math.max(0, previewDrag.dims.monitorHeight - area.height)));
+          var contentFactor = normalizeLinkContentScale(previewDrag.item && previewDrag.item.contentScale) / 100;
+          nextX = Math.max(0, Math.min(area.x + dx, Math.max(0, previewDrag.dims.monitorWidth - area.width * contentFactor)));
+          nextY = Math.max(0, Math.min(area.y + dy, Math.max(0, previewDrag.dims.monitorHeight - area.height * contentFactor)));
         }
 
         byId('link-area-preset').value = 'custom';
@@ -13657,7 +13679,7 @@
 
       function showPositionOnOverlay(item, areaOverride) {
         if (!item || typeof XMLHttpRequest === 'undefined') return;
-        var area = clampAreaToMonitor(areaOverride || item.area || areaFromFields());
+        var area = linkVisualArea(item, areaOverride || item.area || areaFromFields());
         var payload = {
           visible: true,
           name: item.name || 'Overlay-Position',
@@ -13798,7 +13820,7 @@
         for (var i = 0; i < linkItems.length; i++) {
           var item = linkItems[i];
           if (!item || !item.positionPreview) continue;
-          var area = clampAreaToMonitor(item.area || areaFromFields());
+          var area = linkVisualArea(item, item.area || areaFromFields());
           items.push({
             visible: true,
             name: item.name || 'Overlay-Position',
@@ -14615,7 +14637,7 @@
         for (var i = 0; i < items.length; i++) {
           (function (item, idx) {
             var detail = linkPreviewText(item);
-            var area = clampAreaToMonitor(item.area);
+            var area = clampLinkAreaToMonitor(item, item.area);
             var visualArea = linkVisualArea(item, area);
             var rect = document.createElement('div');
             rect.className = 'link-card-screen-rect group-member editable' +
@@ -14661,7 +14683,7 @@
               event.preventDefault(); event.stopPropagation();
               focusGroupMember(item.id); // nach vorn + auswählen
               var screenEl = rect.parentNode;
-              var startArea = clampAreaToMonitor(item.area);
+              var startArea = clampLinkAreaToMonitor(item, item.area);
               var startX = event.clientX, startY = event.clientY;
               var moved = false;
               function move(em) {
@@ -14677,8 +14699,9 @@
                   if (handle.indexOf('w') >= 0) { next.x = clampRectValue(startArea.x + dx, 0, startArea.x + startArea.width - minSize); next.width = startArea.width + startArea.x - next.x; }
                   if (handle.indexOf('n') >= 0) { next.y = clampRectValue(startArea.y + dy, 0, startArea.y + startArea.height - minSize); next.height = startArea.height + startArea.y - next.y; }
                 } else {
-                  next.x = clampRectValue(startArea.x + dx, 0, monitor.monitorWidth - startArea.width);
-                  next.y = clampRectValue(startArea.y + dy, 0, monitor.monitorHeight - startArea.height);
+                  var contentFactor = normalizeLinkContentScale(item.contentScale) / 100;
+                  next.x = clampRectValue(startArea.x + dx, 0, Math.max(0, monitor.monitorWidth - startArea.width * contentFactor));
+                  next.y = clampRectValue(startArea.y + dy, 0, Math.max(0, monitor.monitorHeight - startArea.height * contentFactor));
                 }
                 item.area = next; paint(next);
               }
@@ -14777,7 +14800,7 @@
         var strong = document.createElement('strong');
         var sub = document.createElement('span');
         var monitor = readMonitorFields();
-        var area = clampAreaToMonitor(item.area);
+        var area = clampLinkAreaToMonitor(item, item.area);
         var visualArea = linkVisualArea(item, area);
         // Vorschau-Adresse: Anbieter mit Einbettungssperre laufen ueber den
         // Vorschau-Proxy der Bridge; ohne Proxy bleibt der Platzhalter.
@@ -14855,7 +14878,7 @@
         function beginLinkCardAreaEdit(event, handle) {
           event.preventDefault();
           event.stopPropagation();
-          var startArea = clampAreaToMonitor(item.area);
+          var startArea = clampLinkAreaToMonitor(item, item.area);
           var startCrop = normalizeLinkCrop(item.crop);
           var startX = event.clientX;
           var startY = event.clientY;
@@ -14942,8 +14965,9 @@
                 next.height = startArea.height + startArea.y - next.y;
               }
             } else {
-              next.x = clampRectValue(startArea.x + dx, 0, monitor.monitorWidth - startArea.width);
-              next.y = clampRectValue(startArea.y + dy, 0, monitor.monitorHeight - startArea.height);
+              var contentFactor = normalizeLinkContentScale(item.contentScale) / 100;
+              next.x = clampRectValue(startArea.x + dx, 0, Math.max(0, monitor.monitorWidth - startArea.width * contentFactor));
+              next.y = clampRectValue(startArea.y + dy, 0, Math.max(0, monitor.monitorHeight - startArea.height * contentFactor));
             }
 
             item.area = next;
@@ -15437,6 +15461,7 @@
         settings.appendChild(mutedField);
         settings.appendChild(makeSettingRange('Skalierung', item.contentScale, function (value) {
           item.contentScale = value;
+          item.area = clampLinkAreaToMonitor(item, item.area);
           item.visible = true;
           saveStoredLinks();
           renderLinks();
