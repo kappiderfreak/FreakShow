@@ -2122,6 +2122,79 @@ function Get-MonitorsJson {
     return '{"ok":false,"monitors":[]}'
   }
 }
+
+# Liefert einen begrenzten Ausschnitt eines physischen Monitors als PNG. Der Aufruf
+# erfolgt ausschliesslich per token-geschuetztem POST /screen-capture. X/Y sind relativ
+# zum gewaehlt Monitor, damit auch Monitore links/oberhalb des Hauptmonitors sauber
+# funktionieren. maxWidth/maxHeight verkleinern nur die Antwort, nicht den Ausschnitt.
+function Get-ScreenCaptureBytes {
+  param([object]$Incoming)
+  Add-Type -AssemblyName System.Windows.Forms -ErrorAction SilentlyContinue | Out-Null
+  Add-Type -AssemblyName System.Drawing -ErrorAction SilentlyContinue | Out-Null
+  $screens = [System.Windows.Forms.Screen]::AllScreens
+  if ($null -eq $screens -or $screens.Count -le 0) { throw 'no monitors' }
+
+  $monitorIndex = 0
+  if ($null -ne $Incoming -and $null -ne $Incoming.monitor) { try { $monitorIndex = [int]$Incoming.monitor } catch { $monitorIndex = 0 } }
+  if ($monitorIndex -lt 0 -or $monitorIndex -ge $screens.Count) { $monitorIndex = 0 }
+  $bounds = $screens[$monitorIndex].Bounds
+
+  $x = 0; $y = 0; $width = [int]$bounds.Width; $height = [int]$bounds.Height
+  if ($null -ne $Incoming) {
+    if ($null -ne $Incoming.x) { try { $x = [int]$Incoming.x } catch {} }
+    if ($null -ne $Incoming.y) { try { $y = [int]$Incoming.y } catch {} }
+    if ($null -ne $Incoming.width) { try { $width = [int]$Incoming.width } catch {} }
+    if ($null -ne $Incoming.height) { try { $height = [int]$Incoming.height } catch {} }
+  }
+  $x = [Math]::Max(0, [Math]::Min([int]$bounds.Width - 1, $x))
+  $y = [Math]::Max(0, [Math]::Min([int]$bounds.Height - 1, $y))
+  $width = [Math]::Max(1, [Math]::Min([int]$bounds.Width - $x, $width))
+  $height = [Math]::Max(1, [Math]::Min([int]$bounds.Height - $y, $height))
+
+  $maxWidth = $width; $maxHeight = $height
+  if ($null -ne $Incoming) {
+    if ($null -ne $Incoming.maxWidth) { try { $maxWidth = [int]$Incoming.maxWidth } catch {} }
+    if ($null -ne $Incoming.maxHeight) { try { $maxHeight = [int]$Incoming.maxHeight } catch {} }
+  }
+  $maxWidth = [Math]::Max(1, [Math]::Min(1200, $maxWidth))
+  $maxHeight = [Math]::Max(1, [Math]::Min(800, $maxHeight))
+  $scale = [Math]::Min(1.0, [Math]::Min($maxWidth / [double]$width, $maxHeight / [double]$height))
+  $targetWidth = [Math]::Max(1, [int][Math]::Round($width * $scale))
+  $targetHeight = [Math]::Max(1, [int][Math]::Round($height * $scale))
+
+  $source = $null; $target = $null; $captureGraphics = $null; $resizeGraphics = $null; $memory = $null
+  try {
+    $source = New-Object System.Drawing.Bitmap($width, $height, [System.Drawing.Imaging.PixelFormat]::Format24bppRgb)
+    $captureGraphics = [System.Drawing.Graphics]::FromImage($source)
+    $captureGraphics.CopyFromScreen(
+      [int]$bounds.X + $x,
+      [int]$bounds.Y + $y,
+      0,
+      0,
+      (New-Object System.Drawing.Size($width, $height)),
+      [System.Drawing.CopyPixelOperation]::SourceCopy
+    )
+    if ($targetWidth -ne $width -or $targetHeight -ne $height) {
+      $target = New-Object System.Drawing.Bitmap($targetWidth, $targetHeight, [System.Drawing.Imaging.PixelFormat]::Format24bppRgb)
+      $resizeGraphics = [System.Drawing.Graphics]::FromImage($target)
+      $resizeGraphics.CompositingMode = [System.Drawing.Drawing2D.CompositingMode]::SourceCopy
+      $resizeGraphics.CompositingQuality = [System.Drawing.Drawing2D.CompositingQuality]::HighQuality
+      $resizeGraphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+      $resizeGraphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+      $resizeGraphics.DrawImage($source, 0, 0, $targetWidth, $targetHeight)
+    } else { $target = $source }
+    $memory = New-Object System.IO.MemoryStream
+    $target.Save($memory, [System.Drawing.Imaging.ImageFormat]::Png)
+    $result = $memory.ToArray()
+    return ,$result
+  } finally {
+    if ($null -ne $resizeGraphics) { $resizeGraphics.Dispose() }
+    if ($null -ne $captureGraphics) { $captureGraphics.Dispose() }
+    if ($null -ne $target -and -not [object]::ReferenceEquals($target, $source)) { $target.Dispose() }
+    if ($null -ne $source) { $source.Dispose() }
+    if ($null -ne $memory) { $memory.Dispose() }
+  }
+}
 function Read-OverlayMonitorJson {
   try {
     if (Test-Path -LiteralPath $OverlayMonitorPath) {
@@ -4172,6 +4245,19 @@ while ($true) {
 
     if ($method -eq 'GET' -and ($path -eq '/monitors' -or $path -eq '/overlay/monitors')) {
       Write-HttpResponse -Stream $stream -StatusCode 200 -Reason 'OK' -Body (Get-MonitorsJson)
+      continue
+    }
+
+    if ($method -eq 'POST' -and ($path -eq '/screen-capture' -or $path -eq '/overlay/screen-capture')) {
+      $body = Read-RequestBody -Reader $reader -Length $contentLength
+      try {
+        $incoming = if ([string]::IsNullOrWhiteSpace($body)) { $null } else { $body | ConvertFrom-Json -ErrorAction Stop }
+        $captureBytes = Get-ScreenCaptureBytes $incoming
+        Write-BytesResponse -Stream $stream -StatusCode 200 -Reason 'OK' -Bytes $captureBytes -ContentType 'image/png'
+      } catch {
+        $message = ([string]$_.Exception.Message).Replace('\\', '\\\\').Replace('"', '\"').Replace("`r", ' ').Replace("`n", ' ')
+        Write-HttpResponse -Stream $stream -StatusCode 500 -Reason 'Internal Server Error' -Body ('{"ok":false,"error":"' + $message + '"}')
+      }
       continue
     }
 

@@ -1,5 +1,19 @@
 # FreakShow – Änderungen
 
+## 1.4.2
+
+### Korrigiert
+
+- Notizen: die Inhaltsskalierung wirkt jetzt auch im echten Overlay. Der Wert wurde bisher nicht an die Ausgabe übertragen, deshalb skalierte nur die Vorschau
+- Notizen: Tabellen aus dem Textfeld und der Textschatten skalieren mit, statt in fester Größe stehen zu bleiben
+- Einstellungen gingen verloren, wenn die Steuerungsseite kurz nach einer Änderung neu geladen oder geschlossen wurde. Ausstehende Änderungen werden jetzt vorher abgeschlossen
+
+### Neu
+
+- Notizen und Web-Overlays: die rechte Spalte hat zwei Reiter, "Einstellungen" und "Position". Das schafft Platz und macht die Positionsfelder übersichtlich
+- Notizen: Größen und Positionen lassen sich unter einem Namen sichern und auf weitere Notizen übertragen. Mehrere Notizen bekommen so exakt dieselbe Größe oder dieselbe Stelle
+- Notizen: Position und Größe in Prozent eingeben, mit neun festen Stellen zur Auswahl
+
 ## 1.4.1
 
 ### Korrigiert

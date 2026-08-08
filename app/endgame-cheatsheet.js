@@ -189,6 +189,8 @@
     // Position/Breite/Hoehe in PROZENT des Monitors (frei positionierbar, pro Text).
     var x = clampNum(cfg.x, 0, 100, 66);
     var y = clampNum(cfg.y, 0, 100, 6);
+    // Content Scale skaliert ALLES: Rahmen samt Breite und Hoehe, Schrift, Abstaende
+    // und jeden Inhalt darin. Ein Regler fuer die komplette Notiz.
     var contentScale = clampNum(cfg.contentScale, 25, 200, 100) / 100;
     var width = clampNum(cfg.width, 5, 90, 24) * contentScale;
     var height = clampNum(cfg.height, 0, 95, 0) * contentScale;
@@ -241,6 +243,14 @@
       imageEmojis[ie].style.objectFit = 'contain';
       imageEmojis[ie].style.verticalAlign = 'middle';
     }
+    // kappi-markdown.js setzt Tabellen-Zellen mit festen Pixeln (1px Rahmen,
+    // 2px/8px Innenabstand). Die muessen mitskalieren, sonst bleiben Tabellen
+    // beim Herunterskalieren zu klobig - die Vorschau macht es schon so.
+    var cells = txt.querySelectorAll('th, td');
+    for (var ci = 0; ci < cells.length; ci++) {
+      cells[ci].style.borderWidth = (1 * contentScale) + 'px';
+      cells[ci].style.padding = (2 * contentScale) + 'px ' + (8 * contentScale) + 'px';
+    }
     txt.style.color = textColor;
     txt.style.opacity = String(textOpacity);
     txt.style.fontFamily = font;
@@ -248,7 +258,7 @@
     txt.style.lineHeight = '1.35';
     txt.style.minHeight = height > 0 ? '100%' : '';
     txt.style.fontWeight = '600';
-    txt.style.textShadow = '0 1px 2px rgba(0,0,0,.55)';
+    txt.style.textShadow = '0 ' + (1 * contentScale) + 'px ' + (2 * contentScale) + 'px rgba(0,0,0,.55)';
   }
 
   function renderAll(items) {

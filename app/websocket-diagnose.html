@@ -91,6 +91,39 @@
         p.onerror = p.ontimeout = function () { saving = false; saveSoon(); };
         try { p.send(JSON.stringify({ set: set, del: del })); } catch (e) { saving = false; }
       }
+      // 3b) F5 oder Fenster schliessen: ausstehende Aenderungen ABSCHLIESSEN.
+      //     Der Delta-Upload ist um 300 ms entprellt. Ohne diesen Abschluss geht eine
+      //     Einstellung verloren, die kurz vor dem Neuladen gesetzt wurde - die Seite
+      //     liest danach den aelteren Server-Stand und alles sieht aus wie zurueckgesetzt.
+      //     sendBeacon scheidet aus, weil der Kontroll-Token als Kopfzeile mit muss.
+      function flushPendingNow() {
+        if (t) { clearTimeout(t); t = null; }
+        var fkeys = Object.keys(pending);
+        if (!fkeys.length) return;
+        var fset = {}, fdel = [];
+        for (var f = 0; f < fkeys.length; f++) {
+          var fk = fkeys[f];
+          if (pending[fk] === DEL) fdel.push(fk); else fset[fk] = pending[fk];
+        }
+        try {
+          var fx = new XMLHttpRequest();
+          fx.open('POST', URL_, false);
+          fx.setRequestHeader('Content-Type', 'application/json');
+          fx.setRequestHeader('X-Kappi-Token', window.BRIDGE_CONTROL_TOKEN);
+          fx.send(JSON.stringify({ set: fset, del: fdel }));
+          if (fx.status >= 200 && fx.status < 300) {
+            for (var d = 0; d < fkeys.length; d++) delete pending[fkeys[d]];
+          }
+        } catch (e) {}
+      }
+      try {
+        window.addEventListener('pagehide', flushPendingNow);
+        window.addEventListener('beforeunload', flushPendingNow);
+        document.addEventListener('visibilitychange', function () {
+          if (document.visibilityState === 'hidden') flushPendingNow();
+        });
+      } catch (e) {}
+
       // 4) NUR localStorage dieser Seite umbiegen (sessionStorage bleibt nativ).
       try {
         var LS = window.localStorage;
@@ -1377,6 +1410,7 @@
     /* Endgame-Eingaben wie die Basis-Felder: ohne Theme blau/Radius 6, im Theme exakt die
        gleichen --t-input-*-Variablen wie die Eingaben von Video/Bilder/Emoji. */
     .ed-slot-settings .cheat-field textarea,
+    .ed-slot-settings .cheat-pos-cell input,
     .ed-slot-settings .cheat-field select {
       border: 1px solid rgba(138,180,248,.65);
       border-radius: 6px;
@@ -1384,6 +1418,7 @@
       color: #fff;
     }
     html.ui-themed .ed-slot-settings .cheat-field textarea,
+    html.ui-themed .ed-slot-settings .cheat-pos-cell input,
     html.ui-themed .ed-slot-settings .cheat-field select {
       border-color: var(--t-input-border);
       background: var(--t-input-bg);
@@ -1391,6 +1426,47 @@
     }
     .ed-slot-settings .cheat-field textarea { padding: 7px 8px; font: inherit; min-height: 84px; }
     .ed-slot-settings .cheat-field select { padding: 7px 8px; }
+
+    /* Notiz-Reiter „Position": 1:1 das Bild aus dem Overlays-Editor. Beschriftung
+       oben, Eingabe darunter, zwei Spalten - X neben Y, B neben H. Ohne diese
+       Regeln stapeln sich die Felder untereinander und input.tiny bleibt 86 px breit. */
+    .cheat-editor .video-fields-tab-panel[data-cheat-tab-panel="pos"] {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px 12px;
+      align-items: start;
+    }
+    /* Muss NACH der Raster-Regel stehen und gleich stark sein, sonst zeigt das
+       ausgeblendete Panel trotz hidden weiter an. */
+    .cheat-editor .video-fields-tab-panel[data-cheat-tab-panel="pos"][hidden] { display: none; }
+    .cheat-editor .video-fields-tab-panel[data-cheat-tab-panel="pos"] > .cheat-field { grid-column: 1 / -1; }
+    .cheat-pos-grid { display: contents; }
+    .cheat-pos-cell { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+    .ed-slot-settings .cheat-pos-cell input {
+      width: 100%;
+      min-width: 0;
+      box-sizing: border-box;
+      padding: 7px 8px;
+      font: inherit;
+    }
+    .ed-slot-settings .cheat-pos-cell select { width: 100%; box-sizing: border-box; padding: 7px 8px; }
+    .cheat-size-save-inline { display: flex; gap: 8px; align-items: center; }
+    .cheat-size-save-inline input { flex: 1 1 auto; min-width: 0; }
+    .cheat-size-save-inline button { flex: 0 0 auto; white-space: nowrap; }
+    .ed-slot-settings .cheat-size-save-inline input {
+      box-sizing: border-box;
+      padding: 7px 8px;
+      font: inherit;
+      border: 1px solid rgba(138,180,248,.65);
+      border-radius: 6px;
+      background: #0d121a;
+      color: #fff;
+    }
+    html.ui-themed .ed-slot-settings .cheat-size-save-inline input {
+      border-color: var(--t-input-border);
+      background: var(--t-input-bg);
+      color: var(--t-input-text);
+    }
 
     /* Endgame: Slot 1 großes Textfeld (unter dem Monitor), Slot 3 Regler (volle Breite),
        Slot 4 Buttons (rechtsbündig) – analog zu Video/Bilder/Emoji. */
@@ -2020,6 +2096,25 @@
     }
     #workspace-view-links .link-card-settings > :nth-child(1),
     #workspace-view-links .link-card-settings > :nth-child(2) { grid-column: 1 / -1; }
+    /* Einzel-Editor: die Felder sitzen in zwei Reitern (Aussehen / Position).
+       Das Raster liegt deshalb auf dem jeweiligen Panel, nicht auf dem Container.
+       Der Gruppen-Kopf nutzt dieselbe Klasse ohne -tabbed und bleibt unberuehrt. */
+    #workspace-view-links .link-detail-host .link-card-settings.link-card-settings-tabbed,
+    #workspace-view-links .link-card-settings.link-card-settings-tabbed {
+      display: block;
+      grid-template-columns: none;
+    }
+    #workspace-view-links .link-card-settings-tabbed > .video-bubble-tabs { margin-bottom: 10px; }
+    #workspace-view-links .link-fields-tab-panel {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px 12px;
+      align-items: start;
+    }
+    #workspace-view-links .link-fields-tab-panel[hidden] { display: none; }
+    /* Nur im Reiter Aussehen: Dauerhaft und Ausgabe-Monitor ueber die volle Breite. */
+    #workspace-view-links .link-fields-tab-panel[data-link-tab-panel="look"] > :nth-child(1),
+    #workspace-view-links .link-fields-tab-panel[data-link-tab-panel="look"] > :nth-child(2) { grid-column: 1 / -1; }
     #workspace-view-links .link-card-settings .video-setting > span,
     #workspace-view-links .link-url-field > span { color: #a8b3c7; font-size: 11px; }
     html.ui-themed #workspace-view-links .link-card-settings .video-setting > span,
@@ -2132,6 +2227,22 @@
       display: flex;
       flex-direction: column;
       min-height: 0;
+    }
+
+    /* Game Event genauso wie Videos. Die beiden Regeln gehoeren ZUSAMMEN:
+       erst macht die Spalte eine begrenzte Flex-Saeule, dann fuellt die Liste
+       sie aus. Nur die zweite Regel allein laesst die Liste unbegrenzt wachsen -
+       dann verschwindet die Bildlaufleiste. */
+    #workspace-view-gameevent .video-manager-nav {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    #workspace-view-gameevent .video-overlay-list {
+      flex: 1 1 auto;
+      min-height: 0;
+      max-height: none;
     }
 
     #workspace-view-overlays .video-overlay-list {
@@ -7194,7 +7305,15 @@
                 </div>
 
                 <!-- Slot 2: Einstellungen (rechte Spalte, wie #video-primary-fields) -->
-                <div class="cheat-editor ed-slot-settings">
+                <div class="cheat-editor ed-slot-settings" id="cheat-fields-host">
+                  <!-- Zwei Reiter wie beim Video-Editor: „Aussehen" und „Position".
+                       Dadurch bleibt die rechte Spalte kurz, statt alles untereinander
+                       zu stapeln. Die Feld-IDs bleiben unveraendert. -->
+                  <div class="video-bubble-tabs" role="tablist">
+                    <button id="cheat-fields-tab-look" type="button" class="video-bubble-tab is-active" data-cheat-tab="look" aria-selected="true">Einstellungen</button>
+                    <button id="cheat-fields-tab-pos" type="button" class="video-bubble-tab" data-cheat-tab="pos" aria-selected="false">Position</button>
+                  </div>
+                  <div class="video-fields-tab-panel" data-cheat-tab-panel="look">
                   <div class="cheat-field" id="cheat-current-field" hidden>
                     <span class="cheat-label">Aktueller Text</span>
                     <select id="cheat-current-select" title="Text in dieser Gruppe direkt auswählen"></select>
@@ -7243,6 +7362,38 @@
                     <span id="cheat-target-monitor-label" class="cheat-label">Ausgabe-Monitor</span>
                     <select id="cheat-target-monitor" title="Auf welchem physischen Bildschirm diese Notiz angezeigt wird"></select>
                   </div>
+                  </div><!-- /Reiter „Aussehen" -->
+
+                  <!-- Genaue Lage in Zahlen - wie im Overlays-Reiter, damit man sieht,
+                       wo die Notiz wirklich sitzt. Werte in Prozent des Bildschirms. -->
+                  <div class="video-fields-tab-panel" data-cheat-tab-panel="pos" hidden>
+                  <div class="cheat-field cheat-pos-grid">
+                    <label class="cheat-pos-cell"><span class="cheat-label" id="cheat-size-label">Größe</span>
+                      <select id="cheat-size-preset" title="Gespeicherte Größe anwenden – mehrere Notizen bekommen so exakt dieselbe Breite und Höhe"></select></label>
+                    <label class="cheat-pos-cell"><span class="cheat-label" id="cheat-pos-label">Position</span>
+                      <select id="cheat-pos-preset" title="Notiz an eine feste Stelle setzen – Größe bleibt unverändert"></select></label>
+                  </div>
+                  <div class="cheat-field cheat-pos-grid">
+                    <label class="cheat-pos-cell"><span class="cheat-label">X %</span>
+                      <input id="cheat-pos-x" class="tiny" type="number" min="0" max="100" step="0.5"></label>
+                    <label class="cheat-pos-cell"><span class="cheat-label">Y %</span>
+                      <input id="cheat-pos-y" class="tiny" type="number" min="0" max="100" step="0.5"></label>
+                    <label class="cheat-pos-cell"><span class="cheat-label">B %</span>
+                      <input id="cheat-pos-w" class="tiny" type="number" min="5" max="90" step="0.5"></label>
+                    <label class="cheat-pos-cell"><span class="cheat-label">H %</span>
+                      <input id="cheat-pos-h" class="tiny" type="number" min="0" max="95" step="0.5" title="0 = Höhe folgt dem Text"></label>
+                  </div>
+                  <!-- Erscheint nur beim Speichern einer Größe. Bewusst kein prompt():
+                       in der WebView2-Fassung sind Skript-Dialoge nicht garantiert. -->
+                  <div class="cheat-field cheat-size-save-row" id="cheat-size-save-row" hidden>
+                    <span class="cheat-label" id="cheat-size-save-label">Name der Größe</span>
+                    <div class="cheat-size-save-inline">
+                      <input id="cheat-size-name" type="text" autocomplete="off" maxlength="40" placeholder="z. B. Standard">
+                      <button id="cheat-size-save-ok" type="button" class="btn-primary">Speichern</button>
+                      <button id="cheat-size-save-cancel" type="button">Abbrechen</button>
+                    </div>
+                  </div>
+                  </div><!-- /Reiter „Position" -->
                 </div><!-- /.cheat-editor (Slot 2) -->
                 </div><!-- /.cheat-editor-primary -->
 
@@ -7711,16 +7862,6 @@
               </div>
             </div>
 
-            <div class="settings-card" data-settings-section="extras">
-              <h3 data-i18n="gameEvent.settingsTitle">Game Event</h3>
-              <p class="settings-hint" data-i18n="gameEvent.settingsHint">Schaltet den Game-Event-Reiter mit eigener Gruppensteuerung frei.</p>
-              <label class="switch">
-                <span data-i18n="gameEvent.settingsToggle">Game-Event-Reiter anzeigen</span>
-                <input id="set-gameevent-enabled" type="checkbox">
-                <span class="switch-track" aria-hidden="true"></span>
-                <span id="set-gameevent-text">Aus</span>
-              </label>
-            </div>
 
             <div class="settings-card" data-settings-section="defaults" hidden>
               <h3 data-i18n="settings.defaults">Standardeinstellungen</h3>
@@ -15364,7 +15505,51 @@
             area: item.area
           }, 'ok');
         });
-        settings.className = 'link-card-settings';
+        settings.className = 'link-card-settings link-card-settings-tabbed';
+
+        // Zwei Reiter wie bei Video und Notizen: Aussehen und Position. Sonst
+        // stehen zehn Felder untereinander und die Spalte wird sehr lang.
+        // Der offene Reiter wird global gemerkt, damit er einen Neuaufbau der
+        // Liste ueberlebt - sonst springt man beim Tippen zurueck auf Aussehen.
+        if (window.__linkSettingsTab !== 'pos') window.__linkSettingsTab = 'look';
+        var linkTabsBar = document.createElement('div');
+        linkTabsBar.className = 'video-bubble-tabs';
+        linkTabsBar.setAttribute('role', 'tablist');
+        var lookFields = document.createElement('div');
+        var posFields = document.createElement('div');
+        lookFields.className = 'link-fields-tab-panel';
+        posFields.className = 'link-fields-tab-panel';
+        lookFields.setAttribute('data-link-tab-panel', 'look');
+        posFields.setAttribute('data-link-tab-panel', 'pos');
+
+        function makeLinkFieldsTab(key, label) {
+          var button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'video-bubble-tab';
+          button.textContent = label;
+          button.setAttribute('data-link-tab', key);
+          button.onclick = function () { showLinkFieldsTab(key); };
+          linkTabsBar.appendChild(button);
+          return button;
+        }
+        function showLinkFieldsTab(key) {
+          window.__linkSettingsTab = (key === 'pos') ? 'pos' : 'look';
+          var open = window.__linkSettingsTab;
+          var tabs = linkTabsBar.querySelectorAll('[data-link-tab]');
+          for (var i = 0; i < tabs.length; i++) {
+            var active = tabs[i].getAttribute('data-link-tab') === open;
+            tabs[i].classList.toggle('is-active', active);
+            tabs[i].setAttribute('aria-selected', active ? 'true' : 'false');
+          }
+          lookFields.hidden = (open !== 'look');
+          posFields.hidden = (open !== 'pos');
+        }
+        makeLinkFieldsTab('look', monitorTargetText('Einstellungen', 'Settings', 'Ajustes'));
+        makeLinkFieldsTab('pos', monitorTargetText('Position', 'Position', 'Posición'));
+        settings.appendChild(linkTabsBar);
+        settings.appendChild(lookFields);
+        settings.appendChild(posFields);
+        showLinkFieldsTab(window.__linkSettingsTab);
 
         profileSelect.onchange = function () {
           item.profile = profileSelect.value;
@@ -15427,8 +15612,8 @@
         // Bewusst KEINE Gruppen-Schnellwahl im Einzel-Editor: Die Auswahl, welches
         // Element man gerade bewegen will, sitzt ausschliesslich im Kopf der
         // Gruppen-Ansicht (createLinkGroupCard).
-        settings.appendChild(persistentField);
-        settings.appendChild(makeSettingLabel(monitorTargetText('Ausgabe-Monitor', 'Output monitor', 'Monitor de salida'), targetMonitorSelect));
+        lookFields.appendChild(persistentField);
+        lookFields.appendChild(makeSettingLabel(monitorTargetText('Ausgabe-Monitor', 'Output monitor', 'Monitor de salida'), targetMonitorSelect));
         // Nimmt die eingefaerbten Flaechen hinter dem Inhalt weg - z. B. die Kacheln
         // hinter Chat-Nachrichten. Wirkt im Overlay-Fenster, wo das Overlay laeuft.
         var transparentField = makeSettingCheckbox('Hintergrund entfernen', item.transparentBg === true, function (event) {
@@ -15443,7 +15628,7 @@
         setLinkSettingTitle(transparentField,
           'Blendet die eingefärbten Flächen hinter dem Inhalt aus, z. B. die Kacheln hinter Chat-Nachrichten. '
           + 'Wirkt im Overlay-Fenster (nicht in der Vorschau dieser Seite). Text, Symbole und Emotes bleiben sichtbar.');
-        settings.appendChild(transparentField);
+        lookFields.appendChild(transparentField);
 
         // Ton dieses Web-Overlays stummschalten (z. B. Alertbox ohne Sound).
         var mutedField = makeSettingCheckbox('Ton aus', item.muted === true, function (event) {
@@ -15458,21 +15643,21 @@
         setLinkSettingTitle(mutedField,
           'Schaltet alle Töne dieses Web-Overlays stumm – auch die, die es später nachlädt. '
           + 'Wirkt im Overlay-Fenster.');
-        settings.appendChild(mutedField);
-        settings.appendChild(makeSettingRange('Skalierung', item.contentScale, function (value) {
+        lookFields.appendChild(mutedField);
+        lookFields.appendChild(triggerField);
+        posFields.appendChild(makeSettingRange('Skalierung', item.contentScale, function (value) {
           item.contentScale = value;
           item.area = clampLinkAreaToMonitor(item, item.area);
           item.visible = true;
           saveStoredLinks();
           renderLinks();
         }));
-        settings.appendChild(triggerField);
-        settings.appendChild(makeSettingLabel('Größe', areaSelect));
-        settings.appendChild(makeSettingLabel('Position', positionSelect));
-        settings.appendChild(makeSettingLabel('X', xInput));
-        settings.appendChild(makeSettingLabel('Y', yInput));
-        settings.appendChild(makeSettingLabel('B', widthInput));
-        settings.appendChild(makeSettingLabel('H', heightInput));
+        posFields.appendChild(makeSettingLabel('Größe', areaSelect));
+        posFields.appendChild(makeSettingLabel('Position', positionSelect));
+        posFields.appendChild(makeSettingLabel('X', xInput));
+        posFields.appendChild(makeSettingLabel('Y', yInput));
+        posFields.appendChild(makeSettingLabel('B', widthInput));
+        posFields.appendChild(makeSettingLabel('H', heightInput));
         // "Position speichern" wandert in die untere Slot-4-Aktionsreihe (siehe renderLinks),
         // damit die Buttons wie bei Video/Bilder/Emoji/Endgame unten als fester Block sitzen.
         settings.saveButton = savePositionButton;
@@ -17976,6 +18161,9 @@
         try { if (typeof gameControlRender === 'function') gameControlRender(); } catch (e) {}
         try { if (typeof gameEventControlRender === 'function') gameEventControlRender(); } catch (e) {}
         try { if (typeof updateVideoBubbleUi === 'function') updateVideoBubbleUi(); } catch (e) {}
+        // Notiz- und Overlay-Editor neu beschriften: Reiter, Größen-/Positionslisten
+        // und Hinweistexte kennen ihre Sprache selbst und müssen dafür neu laufen.
+        try { if (typeof refreshOverlayTargetMonitorControls === 'function') refreshOverlayTargetMonitorControls(); } catch (e) {}
         // Button-Beschriftungen können sich geändert haben -> einheitliche Breite neu messen.
         try { if (typeof unifyEdActionButtons === 'function') unifyEdActionButtons(); } catch (e) {}
       }
@@ -18758,6 +18946,19 @@
             if (normalizedItem.statusImageX + normalizedItem.statusImageWidth > 100) normalizedItem.statusImageX = 100 - normalizedItem.statusImageWidth;
             if (normalizedItem.statusImageY + normalizedItem.statusImageHeight > 100) normalizedItem.statusImageY = 100 - normalizedItem.statusImageHeight;
             normalizedItem.statusImageOpacity = gameControlNumber(source.statusImageOpacity, 100, 0, 100);
+          } else {
+            // Game Event: Art des Events und die dazugehoerige Konfiguration MUESSEN
+            // mit uebernommen werden. Fehlten sie hier, verlor jedes Event beim
+            // Neuladen der Seite seinen Typ, fiel auf Bilderkennung zurueck und alle
+            // Einstellungen waren weg. Die Fachmodule pruefen ihre Felder selbst
+            // (ensureConfig), deshalb reicht das unveraenderte Durchreichen.
+            normalizedItem.eventType = ['process', 'act', 'overwolf'].indexOf(source.eventType) >= 0 ? source.eventType : 'recognition';
+            var configKeys = ['processEvent', 'actEvent', 'overwolfEvent', 'recognition'];
+            for (var ck = 0; ck < configKeys.length; ck++) {
+              var configKey = configKeys[ck];
+              var configValue = source[configKey];
+              if (configValue && typeof configValue === 'object') normalizedItem[configKey] = configValue;
+            }
           }
           result.items.push(normalizedItem);
         }
@@ -20286,12 +20487,37 @@
         var title = byId('game-event-control-editor-title');
         var placeholder = byId('game-event-control-editor-placeholder');
         if (!editor || !title || !placeholder) return;
+        if (window.FreakShowRecognition && typeof window.FreakShowRecognition.hideEditor === 'function') window.FreakShowRecognition.hideEditor();
+        if (window.FreakShowProcessEvent && typeof window.FreakShowProcessEvent.hideEditor === 'function') window.FreakShowProcessEvent.hideEditor();
+        if (window.FreakShowActEvent && typeof window.FreakShowActEvent.hideEditor === 'function') window.FreakShowActEvent.hideEditor();
+        if (window.FreakShowOverwolfEvent && typeof window.FreakShowOverwolfEvent.hideEditor === 'function') window.FreakShowOverwolfEvent.hideEditor();
         editor.hidden = !gameEventControlState.groups.length && !gameEventControlState.items.length;
         if (editor.hidden) return;
         var item = gameEventControlFind(gameEventControlSelectedId);
         if (item) {
           title.textContent = item.name;
           title.title = item.name;
+          var eventType = ['process', 'act', 'overwolf'].indexOf(item.eventType) >= 0 ? item.eventType : 'recognition';
+          if (eventType === 'process' && window.FreakShowProcessEvent && typeof window.FreakShowProcessEvent.syncEditor === 'function') {
+            placeholder.hidden = true;
+            window.FreakShowProcessEvent.syncEditor(item, editor);
+            return;
+          }
+          if (eventType === 'recognition' && window.FreakShowRecognition && typeof window.FreakShowRecognition.syncEditor === 'function') {
+            placeholder.hidden = true;
+            window.FreakShowRecognition.syncEditor(item, editor);
+            return;
+          }
+          if (eventType === 'act' && window.FreakShowActEvent && typeof window.FreakShowActEvent.syncEditor === 'function') {
+            placeholder.hidden = true;
+            window.FreakShowActEvent.syncEditor(item, editor);
+            return;
+          }
+          if (eventType === 'overwolf' && window.FreakShowOverwolfEvent && typeof window.FreakShowOverwolfEvent.syncEditor === 'function') {
+            placeholder.hidden = true;
+            window.FreakShowOverwolfEvent.syncEditor(item, editor);
+            return;
+          }
           placeholder.textContent = gameControlText(
             'Die Game-Event-Struktur ist bereit. Die konkrete Event-Funktion wird als Nächstes hier ergänzt.',
             'The game event structure is ready. The actual event function will be added here next.',
@@ -20429,8 +20655,12 @@
         row.setAttribute('data-game-event-id', item.id);
         row.title = item.name + '\n' + gameControlText('Rechtsklick: Gruppe · Umbenennen · Löschen', 'Right-click: group · rename · delete', 'Clic derecho: grupo · renombrar · eliminar');
         var type = document.createElement('span');
-        type.className = 'video-list-type';
-        type.textContent = 'EVENT';
+        var processEvent = item.eventType === 'process';
+        var actEvent = item.eventType === 'act';
+        var overwolfEvent = item.eventType === 'overwolf';
+        var typeClass = processEvent ? 'game-event-type-process' : (actEvent ? 'game-event-type-act' : (overwolfEvent ? 'game-event-type-overwolf' : 'game-event-type-recognition'));
+        type.className = 'video-list-type ' + typeClass;
+        type.textContent = processEvent ? 'EXE' : (actEvent ? 'ACT' : (overwolfEvent ? 'OW' : 'IMG'));
         var name = document.createElement('span');
         name.className = 'video-list-name';
         setIndexedLabel(name, item.name, gameEventControlVisualItems().indexOf(item), gameControlText('Game Event', 'Game event', 'Evento de juego'));
@@ -20455,6 +20685,18 @@
           gameEventControlRender();
         });
         row.appendChild(switchLabel);
+        if (!processEvent && window.FreakShowRecognition && typeof window.FreakShowRecognition.decorateListItem === 'function') {
+          window.FreakShowRecognition.decorateListItem(row, item);
+        }
+        if (processEvent && window.FreakShowProcessEvent && typeof window.FreakShowProcessEvent.decorateListItem === 'function') {
+          window.FreakShowProcessEvent.decorateListItem(row, item);
+        }
+        if (actEvent && window.FreakShowActEvent && typeof window.FreakShowActEvent.decorateListItem === 'function') {
+          window.FreakShowActEvent.decorateListItem(row, item);
+        }
+        if (overwolfEvent && window.FreakShowOverwolfEvent && typeof window.FreakShowOverwolfEvent.decorateListItem === 'function') {
+          window.FreakShowOverwolfEvent.decorateListItem(row, item);
+        }
         row.onclick = function () {
           gameEventControlSelectedGroup = null;
           gameEventControlSelectedId = item.id;
@@ -20653,8 +20895,16 @@
           });
       }
 
-      function gameEventControlCreateItem() {
-        promptDialog(gameControlText('Name des neuen Game Events:', 'Name of the new game event:', 'Nombre del nuevo evento de juego:'), '',
+      function gameEventControlCreateItem(eventType) {
+        eventType = ['process', 'act', 'overwolf'].indexOf(eventType) >= 0 ? eventType : 'recognition';
+        var promptText = eventType === 'process'
+          ? gameControlText('Name des neuen Programm-Events:', 'Name of the new program event:', 'Nombre del nuevo evento de programa:')
+          : (eventType === 'act'
+            ? gameControlText('Name des neuen ACT-Events:', 'Name of the new ACT event:', 'Nombre del nuevo evento de ACT:')
+            : (eventType === 'overwolf'
+              ? gameControlText('Name des neuen Overwolf-Events:', 'Name of the new Overwolf event:', 'Nombre del nuevo evento de Overwolf:')
+              : gameControlText('Name der neuen Bilderkennung:', 'Name of the new image recognition:', 'Nombre del nuevo reconocimiento de imagen:')));
+        promptDialog(promptText, '',
           gameControlText('Erstellen', 'Create', 'Crear'), function (name) {
             name = gameControlCleanName(name, '');
             if (!name) return;
@@ -20663,7 +20913,8 @@
               id: 'game-event-' + Date.now() + '-' + Math.random().toString(16).slice(2),
               name: name,
               group: selectedGroup,
-              enabled: true
+              enabled: true,
+              eventType: eventType
             };
             gameEventControlState.items.push(item);
             gameEventControlSelectedGroup = null;
@@ -20673,12 +20924,39 @@
           });
       }
 
+      function gameEventControlOpenAddMenu(ev) {
+        var button = byId('btn-game-event-control-add');
+        var menu = gameControlNewMenu(gameControlText('Neues Game Event', 'New game event', 'Nuevo evento de juego'));
+        gameControlMenuRow(menu, gameControlText('▣ Bilderkennung', '▣ Image recognition', '▣ Reconocimiento de imagen'), function () {
+          gameEventControlCreateItem('recognition');
+        });
+        gameControlMenuRow(menu, gameControlText('▶ Programm/EXE gestartet', '▶ Program/EXE started', '▶ Programa/EXE iniciado'), function () {
+          gameEventControlCreateItem('process');
+        });
+        gameControlMenuRow(menu, gameControlText('⚔ ACT / OverlayPlugin', '⚔ ACT / OverlayPlugin', '⚔ ACT / OverlayPlugin'), function () {
+          gameEventControlCreateItem('act');
+        });
+        gameControlMenuRow(menu, gameControlText('◉ Overwolf Game Event', '◉ Overwolf game event', '◉ Evento de juego de Overwolf'), function () {
+          gameEventControlCreateItem('overwolf');
+        });
+        var rect = button ? button.getBoundingClientRect() : { left: (ev && ev.clientX) || 8, bottom: (ev && ev.clientY) || 8 };
+        gameControlShowMenu(menu, rect.left, rect.bottom + 4);
+      }
+
       function initGameEventControls() {
         gameEventControlState = gameControlReadState(GAME_EVENT_CONTROLS_KEY, 'game-event');
+        var migratedEventTypes = false;
+        for (var eventIndex = 0; eventIndex < gameEventControlState.items.length; eventIndex++) {
+          if (['process', 'recognition', 'act', 'overwolf'].indexOf(gameEventControlState.items[eventIndex].eventType) < 0) {
+            gameEventControlState.items[eventIndex].eventType = 'recognition';
+            migratedEventTypes = true;
+          }
+        }
+        if (migratedEventTypes) gameEventControlSaveState();
         var addGroup = byId('btn-game-event-group-add');
         if (addGroup) addGroup.onclick = gameEventControlCreateGroup;
         var addItem = byId('btn-game-event-control-add');
-        if (addItem) addItem.onclick = gameEventControlCreateItem;
+        if (addItem) addItem.onclick = gameEventControlOpenAddMenu;
         var host = byId('game-event-control-list');
         if (host && !host.dataset.blankDeselectBound) {
           host.dataset.blankDeselectBound = '1';
@@ -20692,10 +20970,25 @@
         gameEventControlRender();
       }
 
+      window.FreakShowGameEventApi = {
+        state: function () { return gameEventControlState; },
+        selectedId: function () { return gameEventControlSelectedId; },
+        find: gameEventControlFind,
+        save: gameEventControlSaveState,
+        render: gameEventControlRender,
+        text: gameControlText,
+        send: function (payload) { return send(payload); },
+        socketReady: function () { return !!(socket && socket.readyState === WebSocket.OPEN); }
+      };
+
       // ---- Game Event: eigener Reiter, per Schalter freischaltbar. ----
       var GAMEEVENT_KEY = 'kappi.ui.gameevent';
+      // Game Event ist in dieser Fassung NICHT enthalten: der Bereich ist noch
+      // nicht fertig. Fest auf aus - der Reiter laesst sich auch dann nicht
+      // hervorholen, wenn jemand den Speicherschluessel von Hand setzt. Die
+      // zugehoerigen Module werden ausserdem gar nicht erst ausgeliefert.
       function gameEventEnabled() {
-        try { return window.localStorage.getItem(GAMEEVENT_KEY) === '1'; } catch (e) { return false; }
+        return false;
       }
       function applyGameEventTab(on) {
         var b = byId('btn-view-gameevent'); if (b) b.hidden = !on;
@@ -21801,6 +22094,13 @@
         });
       }
       function cheatApplyEditor(p) {
+        // Positionsfelder (X/Y/B/H) beim Notiz-Wechsel mitziehen. Ohne das zeigten
+        // sie die Werte der zuvor gewaehlten Notiz.
+        window.setTimeout(function () {
+          if (typeof syncCheatPositionFields !== 'function') return;
+          if (!window.__cheatPosBound) { window.__cheatPosBound = true; initCheatPositionFields(); }
+          syncCheatPositionFields();
+        }, 0);
         var presetEnabled = !!(p && p.enabled);
         if (byId('cheat-enabled')) byId('cheat-enabled').checked = presetEnabled;
         if (byId('cheat-enabled-text')) byId('cheat-enabled-text').textContent = presetEnabled ? 'An' : 'Aus';
@@ -21884,6 +22184,7 @@
       function cheatPaintMonitorBox(box, p, scale) {
         if (!box || !p) return;
         var contentScale = cheatClamp(p.contentScale == null ? 100 : p.contentScale, 25, 200) / 100;
+        // Content Scale wirkt auf ALLES - auch auf die Flaeche selbst.
         var visualWidth = cheatClamp(p.width, 5, 90) * contentScale;
         var fieldHeight = Number(p.height) > 0 ? cheatClamp(p.height, 4, 95) * contentScale : 0;
         var handlesVisible = cheatResizeHandlesVisible(p.id);
@@ -22939,6 +23240,10 @@
             mode: p.mode, frameEnabled: p.frameEnabled !== false, backgroundEnabled: !!p.backgroundEnabled,
             frameColor: p.frameColor, bgImage: p.bgImage || '', bgOpacity: p.bgOpacity,
             textColor: p.textColor, textOpacity: p.textOpacity, font: p.font, fontSize: p.fontSize,
+            // MUSS mit: ohne diesen Wert rendert das Overlay jede Notiz auf 100 %,
+            // waehrend die Vorschau hier bereits skaliert - genau der Unterschied
+            // zwischen Vorschaubild und echtem Bildschirm.
+            contentScale: cheatClamp(p.contentScale == null ? 100 : p.contentScale, 25, 200),
             trigger: p.trigger || '', triggerOn: p.triggerOn === true,
             targetMonitor: (function (v) { v = parseInt(v, 10); return isNaN(v) ? -1 : Math.max(-1, v); })(p.targetMonitor)
           });
@@ -23002,6 +23307,8 @@
           var mr = mon.getBoundingClientRect();
           var br = box.getBoundingClientRect();
           var sx = ev.clientX, sy = ev.clientY;
+          // Gezogen wird die SICHTBARE Flaeche. p.width/p.height sind die Werte vor
+          // der Skalierung, deshalb hin und zurueck ueber contentScale rechnen.
           var contentScale = cheatClamp(p.contentScale == null ? 100 : p.contentScale, 25, 200) / 100;
           var ow = cheatClamp(p.width, 5, 90);
           var ox = cheatClamp(p.x, 0, 100 - ow * contentScale);
@@ -25530,11 +25837,481 @@
         select.value = String(target);
         if (select.value !== String(target)) select.value = '-1';
       }
+      // Reiter im Notiz-Editor („Aussehen" / „Position"). Gleiche Bauart wie beim
+      // Video-Editor: Ereignis-Delegation auf dem Container, damit die Bindung von
+      // Neu-Aufbauten unabhaengig bleibt. Feld-IDs aendern sich nicht.
+      (function initCheatFieldsTabs() {
+        var host = byId('cheat-fields-host');
+        if (!host) return;
+        host.addEventListener('click', function (event) {
+          var tab = event.target && event.target.closest ? event.target.closest('[data-cheat-tab]') : null;
+          if (!tab || !host.contains(tab)) return;
+          var key = tab.getAttribute('data-cheat-tab') || '';
+          var tabs = host.querySelectorAll('[data-cheat-tab]');
+          for (var i = 0; i < tabs.length; i++) {
+            var active = tabs[i] === tab;
+            tabs[i].classList.toggle('is-active', active);
+            tabs[i].setAttribute('aria-selected', active ? 'true' : 'false');
+          }
+          var panels = host.querySelectorAll('[data-cheat-tab-panel]');
+          for (var j = 0; j < panels.length; j++) {
+            panels[j].hidden = (panels[j].getAttribute('data-cheat-tab-panel') !== key);
+          }
+        });
+        // Beschriftung in der eingestellten Sprache.
+        var look = byId('cheat-fields-tab-look'), pos = byId('cheat-fields-tab-pos');
+        if (look) look.textContent = cheatPosText('Einstellungen', 'Settings', 'Ajustes');
+        if (pos) pos.textContent = cheatPosText('Position', 'Position', 'Posición');
+      })();
+
+      // ===== Notiz-Position in Zahlen (wie im Overlays-Reiter) =====
+      // Die Notiz rechnet in Prozent des Bildschirms. Die Felder zeigen genau das,
+      // was gespeichert ist, und schreiben es direkt zurueck - so sieht man beim
+      // Platzieren, wo die Notiz wirklich sitzt.
+      var CHEAT_POS_SPOTS = {
+        'top-left':      { h: 'start',  v: 'start'  },
+        'top-center':    { h: 'center', v: 'start'  },
+        'top-right':     { h: 'end',    v: 'start'  },
+        'left-center':   { h: 'start',  v: 'center' },
+        'center':        { h: 'center', v: 'center' },
+        'right-center':  { h: 'end',    v: 'center' },
+        'bottom-left':   { h: 'start',  v: 'end'    },
+        'bottom-center': { h: 'center', v: 'end'    },
+        'bottom-right':  { h: 'end',    v: 'end'    }
+      };
+
+      function cheatPosText(de, en, es) {
+        return (typeof monitorTargetText === 'function') ? monitorTargetText(de, en, es) : de;
+      }
+
+      function cheatPosNum(value, fallback, min, max) {
+        var n = parseFloat(value);
+        if (!isFinite(n)) n = fallback;
+        return Math.max(min, Math.min(max, n));
+      }
+
+      function syncCheatPositionFields() {
+        var note = (typeof cheatActivePreset === 'function') ? cheatActivePreset() : null;
+        var ids = ['cheat-pos-x', 'cheat-pos-y', 'cheat-pos-w', 'cheat-pos-h', 'cheat-pos-preset', 'cheat-size-preset'];
+        for (var i = 0; i < ids.length; i++) { var el = byId(ids[i]); if (el) el.disabled = !note; }
+        if (!note) { if (typeof showCheatSizeSaveRow === 'function') showCheatSizeSaveRow(false); return; }
+        var x = byId('cheat-pos-x'), y = byId('cheat-pos-y'), w = byId('cheat-pos-w'), h = byId('cheat-pos-h');
+        if (x) x.value = cheatPosNum(note.x, 6, 0, 100);
+        if (y) y.value = cheatPosNum(note.y, 6, 0, 100);
+        if (w) w.value = cheatPosNum(note.width, 24, 5, 90);
+        if (h) h.value = cheatPosNum(note.height, 0, 0, 95);
+        fillCheatPosPresetSelect('');
+        fillCheatSizeSelect();
+      }
+
+      function applyCheatPositionFields() {
+        var note = (typeof cheatActivePreset === 'function') ? cheatActivePreset() : null;
+        if (!note) return;
+        note.x = cheatPosNum(byId('cheat-pos-x') && byId('cheat-pos-x').value, note.x, 0, 100);
+        note.y = cheatPosNum(byId('cheat-pos-y') && byId('cheat-pos-y').value, note.y, 0, 100);
+        note.width = cheatPosNum(byId('cheat-pos-w') && byId('cheat-pos-w').value, note.width, 5, 90);
+        note.height = cheatPosNum(byId('cheat-pos-h') && byId('cheat-pos-h').value, note.height, 0, 95);
+        if (typeof cheatPersist === 'function') cheatPersist();
+        if (typeof cheatRenderMonitor === 'function') cheatRenderMonitor();
+        if (typeof cheatPushDebounced === 'function') cheatPushDebounced();
+      }
+
+      // ===== Gespeicherte Notiz-Groessen =====
+      // Zweck: mehrere Notizen sollen exakt gleich gross sein koennen. Breite und
+      // Hoehe werden einmal unter einem Namen gesichert und lassen sich danach bei
+      // jeder weiteren Notiz mit einem Griff uebernehmen. Gespeichert wird wie bei
+      // den Video-Gruppen im localStorage - es ist eine reine Bedien-Hilfe der
+      // Steuerungsseite und gehoert nicht in die Notiz-Daten selbst.
+      // Dasselbe gilt fuer die Lage: gespeicherte Positionen setzen mehrere Notizen
+      // punktgenau an dieselbe Stelle. Groesse und Position sind bewusst getrennt -
+      // gleich gross heisst nicht gleiche Stelle und umgekehrt.
+      var CHEAT_SIZES_KEY = 'freakshow.cheatSizes';
+      var CHEAT_POSITIONS_KEY = 'freakshow.cheatPositions';
+      var cheatSizes = [];
+      var cheatPositions = [];
+      var cheatSizeLastPick = '';
+      var cheatPosLastPick = '';
+      // Welche Art von Eintrag die Namenszeile gerade speichert: 'size' oder 'pos'.
+      var cheatSaveRowMode = 'size';
+
+      function loadCheatPositions() {
+        cheatPositions = [];
+        try {
+          var raw = window.localStorage ? window.localStorage.getItem(CHEAT_POSITIONS_KEY) : '';
+          var parsed = raw ? JSON.parse(raw) : [];
+          if (Object.prototype.toString.call(parsed) === '[object Array]') {
+            for (var i = 0; i < parsed.length; i++) {
+              var entry = parsed[i];
+              if (!entry || typeof entry.name !== 'string' || !entry.name) continue;
+              cheatPositions.push({
+                name: entry.name,
+                x: cheatPosNum(entry.x, 6, 0, 100),
+                y: cheatPosNum(entry.y, 6, 0, 100)
+              });
+            }
+          }
+        } catch (err) {}
+        return cheatPositions;
+      }
+
+      function saveCheatPositions() {
+        try { if (window.localStorage) window.localStorage.setItem(CHEAT_POSITIONS_KEY, JSON.stringify(cheatPositions)); } catch (err) {}
+      }
+
+      function findCheatPosition(name) {
+        for (var i = 0; i < cheatPositions.length; i++) { if (cheatPositions[i].name === name) return cheatPositions[i]; }
+        return null;
+      }
+
+      // Baut die Positions-Auswahl: erst die neun festen Stellen, danach die
+      // selbst gespeicherten, zuletzt Speichern und Loeschen.
+      function fillCheatPosPresetSelect(keepValue) {
+        var sel = byId('cheat-pos-preset');
+        if (!sel) return;
+        var want = (typeof keepValue === 'string') ? keepValue : sel.value;
+        while (sel.firstChild) sel.removeChild(sel.firstChild);
+        function add(value, text) {
+          var option = document.createElement('option');
+          option.value = value;
+          option.textContent = text;
+          sel.appendChild(option);
+        }
+        var spots = [
+          ['', cheatPosText('Frei', 'Free', 'Libre')],
+          ['top-left', cheatPosText('Links oben', 'Top left', 'Arriba izquierda')],
+          ['top-center', cheatPosText('Oben Mitte', 'Top center', 'Arriba centro')],
+          ['top-right', cheatPosText('Rechts oben', 'Top right', 'Arriba derecha')],
+          ['left-center', cheatPosText('Links Mitte', 'Left center', 'Izquierda centro')],
+          ['center', cheatPosText('Mitte', 'Center', 'Centro')],
+          ['right-center', cheatPosText('Rechts Mitte', 'Right center', 'Derecha centro')],
+          ['bottom-left', cheatPosText('Links unten', 'Bottom left', 'Abajo izquierda')],
+          ['bottom-center', cheatPosText('Unten Mitte', 'Bottom center', 'Abajo centro')],
+          ['bottom-right', cheatPosText('Rechts unten', 'Bottom right', 'Abajo derecha')]
+        ];
+        for (var s = 0; s < spots.length; s++) add(spots[s][0], spots[s][1]);
+        for (var i = 0; i < cheatPositions.length; i++) {
+          var spot = cheatPositions[i];
+          add('n:' + spot.name, spot.name + ' (' + spot.x + ' / ' + spot.y + ')');
+        }
+        add('__save__', cheatPosText('+ Aktuelle Position speichern …', '+ Save current position …', '+ Guardar posición actual …'));
+        if (cheatPositions.length) add('__delete__', cheatPosText('– Gewählte Position löschen', '– Delete selected position', '– Borrar posición elegida'));
+        sel.value = want || '';
+        if (sel.selectedIndex < 0) sel.value = '';
+        cheatPosLastPick = sel.value;
+      }
+
+      // Setzt NUR die Lage. Breite und Hoehe bleiben, wie sie sind.
+      function applyCheatPositionByName(name) {
+        var note = (typeof cheatActivePreset === 'function') ? cheatActivePreset() : null;
+        var spot = findCheatPosition(name);
+        if (!note || !spot) return;
+        note.x = spot.x;
+        note.y = spot.y;
+        syncCheatPositionFields();
+        fillCheatPosPresetSelect('n:' + name);
+        if (typeof cheatPersist === 'function') cheatPersist();
+        if (typeof cheatRenderMonitor === 'function') cheatRenderMonitor();
+        if (typeof cheatPushDebounced === 'function') cheatPushDebounced();
+        log('Gespeicherte Position übernommen.', { name: name, x: spot.x, y: spot.y }, 'ok');
+      }
+
+      function deleteChosenCheatPosition() {
+        if (cheatPosLastPick.indexOf('n:') !== 0) {
+          log('Zum Löschen zuerst eine gespeicherte Position auswählen.', null, 'warn');
+          return;
+        }
+        var name = cheatPosLastPick.slice(2);
+        if (!window.confirm(cheatPosText(
+          'Gespeicherte Position „' + name + '“ löschen? Bereits gesetzte Notizen bleiben unverändert.',
+          'Delete saved position "' + name + '"? Notes already using it stay unchanged.',
+          '¿Borrar la posición guardada «' + name + '»? Las notas que ya la usan no cambian.'))) return;
+        for (var i = 0; i < cheatPositions.length; i++) {
+          if (cheatPositions[i].name !== name) continue;
+          cheatPositions.splice(i, 1);
+          break;
+        }
+        saveCheatPositions();
+        fillCheatPosPresetSelect('');
+        log('Gespeicherte Position gelöscht.', { name: name }, 'muted');
+      }
+
+      function loadCheatSizes() {
+        cheatSizes = [];
+        try {
+          var raw = window.localStorage ? window.localStorage.getItem(CHEAT_SIZES_KEY) : '';
+          var parsed = raw ? JSON.parse(raw) : [];
+          if (Object.prototype.toString.call(parsed) === '[object Array]') {
+            for (var i = 0; i < parsed.length; i++) {
+              var entry = parsed[i];
+              if (!entry || typeof entry.name !== 'string' || !entry.name) continue;
+              cheatSizes.push({
+                name: entry.name,
+                width: cheatPosNum(entry.width, 24, 5, 90),
+                height: cheatPosNum(entry.height, 0, 0, 95)
+              });
+            }
+          }
+        } catch (err) {}
+        return cheatSizes;
+      }
+
+      function saveCheatSizes() {
+        try { if (window.localStorage) window.localStorage.setItem(CHEAT_SIZES_KEY, JSON.stringify(cheatSizes)); } catch (err) {}
+      }
+
+      function findCheatSize(name) {
+        for (var i = 0; i < cheatSizes.length; i++) { if (cheatSizes[i].name === name) return cheatSizes[i]; }
+        return null;
+      }
+
+      function fillCheatSizeSelect(keepValue) {
+        var sel = byId('cheat-size-preset');
+        if (!sel) return;
+        var want = (typeof keepValue === 'string') ? keepValue : sel.value;
+        while (sel.firstChild) sel.removeChild(sel.firstChild);
+        function add(value, text) {
+          var option = document.createElement('option');
+          option.value = value;
+          option.textContent = text;
+          sel.appendChild(option);
+        }
+        add('', cheatPosText('Größe wählen …', 'Choose size …', 'Elegir tamaño …'));
+        for (var i = 0; i < cheatSizes.length; i++) {
+          var size = cheatSizes[i];
+          add('n:' + size.name, size.name + ' (' + size.width + ' × ' + (size.height > 0 ? size.height : 'auto') + ')');
+        }
+        add('__save__', cheatPosText('+ Aktuelle Größe speichern …', '+ Save current size …', '+ Guardar tamaño actual …'));
+        if (cheatSizes.length) add('__delete__', cheatPosText('– Gewählte Größe löschen', '– Delete selected size', '– Borrar tamaño elegido'));
+        sel.value = want || '';
+        if (sel.selectedIndex < 0) sel.value = '';
+        cheatSizeLastPick = sel.value;
+      }
+
+      // Eine Namenszeile fuer beides. Der Modus entscheidet, was gespeichert wird
+      // und wie die Beschriftung lautet.
+      function showCheatSaveRow(mode, show) {
+        if (show) cheatSaveRowMode = (mode === 'pos') ? 'pos' : 'size';
+        var row = byId('cheat-size-save-row');
+        if (row) row.hidden = !show;
+        var label = byId('cheat-size-save-label');
+        if (label) {
+          label.textContent = (cheatSaveRowMode === 'pos')
+            ? cheatPosText('Name der Position', 'Position name', 'Nombre de la posición')
+            : cheatPosText('Name der Größe', 'Size name', 'Nombre del tamaño');
+        }
+        var input = byId('cheat-size-name');
+        if (input) {
+          input.placeholder = (cheatSaveRowMode === 'pos')
+            ? cheatPosText('z. B. Ecke rechts', 'e.g. right corner', 'p. ej. esquina derecha')
+            : cheatPosText('z. B. Standard', 'e.g. standard', 'p. ej. estándar');
+          if (show) { input.focus(); input.select(); }
+        }
+      }
+
+      function showCheatSizeSaveRow(show) { showCheatSaveRow(cheatSaveRowMode, show); }
+
+      // Uebernimmt eine gespeicherte Groesse. Die Lage bleibt, wo sie ist -
+      // gleiche Groesse heisst nicht gleiche Stelle.
+      function applyCheatSizeByName(name) {
+        var note = (typeof cheatActivePreset === 'function') ? cheatActivePreset() : null;
+        var size = findCheatSize(name);
+        if (!note || !size) return;
+        note.width = size.width;
+        note.height = size.height;
+        syncCheatPositionFields();
+        if (typeof cheatPersist === 'function') cheatPersist();
+        if (typeof cheatRenderMonitor === 'function') cheatRenderMonitor();
+        if (typeof cheatPushDebounced === 'function') cheatPushDebounced();
+        log('Gespeicherte Größe übernommen.', { name: name, breite: size.width, hoehe: size.height }, 'ok');
+      }
+
+      function commitCheatSizeSave() {
+        var note = (typeof cheatActivePreset === 'function') ? cheatActivePreset() : null;
+        var input = byId('cheat-size-name');
+        if (!note || !input) return;
+        var name = String(input.value || '').trim();
+        if (!name) { input.focus(); return; }
+        if (cheatSaveRowMode === 'pos') {
+          var px = cheatPosNum(byId('cheat-pos-x') && byId('cheat-pos-x').value, note.x, 0, 100);
+          var py = cheatPosNum(byId('cheat-pos-y') && byId('cheat-pos-y').value, note.y, 0, 100);
+          var known = findCheatPosition(name);
+          if (known) { known.x = px; known.y = py; }
+          else { cheatPositions.push({ name: name, x: px, y: py }); }
+          saveCheatPositions();
+          fillCheatPosPresetSelect('n:' + name);
+          showCheatSaveRow('pos', false);
+          input.value = '';
+          log(known ? 'Notiz-Position überschrieben.' : 'Notiz-Position gespeichert.', { name: name, x: px, y: py }, 'ok');
+          return;
+        }
+        var width = cheatPosNum(byId('cheat-pos-w') && byId('cheat-pos-w').value, note.width, 5, 90);
+        var height = cheatPosNum(byId('cheat-pos-h') && byId('cheat-pos-h').value, note.height, 0, 95);
+        var existing = findCheatSize(name);
+        if (existing) { existing.width = width; existing.height = height; }
+        else { cheatSizes.push({ name: name, width: width, height: height }); }
+        saveCheatSizes();
+        fillCheatSizeSelect('n:' + name);
+        showCheatSizeSaveRow(false);
+        input.value = '';
+        log(existing ? 'Notiz-Größe überschrieben.' : 'Notiz-Größe gespeichert.', { name: name, breite: width, hoehe: height }, 'ok');
+      }
+
+      function deleteChosenCheatSize() {
+        if (cheatSizeLastPick.indexOf('n:') !== 0) {
+          log('Zum Löschen zuerst eine gespeicherte Größe auswählen.', null, 'warn');
+          return;
+        }
+        var name = cheatSizeLastPick.slice(2);
+        if (!window.confirm(cheatPosText(
+          'Gespeicherte Größe „' + name + '“ löschen? Bereits gesetzte Notizen bleiben unverändert.',
+          'Delete saved size "' + name + '"? Notes already using it stay unchanged.',
+          '¿Borrar el tamaño guardado «' + name + '»? Las notas que ya lo usan no cambian.'))) return;
+        for (var i = 0; i < cheatSizes.length; i++) {
+          if (cheatSizes[i].name !== name) continue;
+          cheatSizes.splice(i, 1);
+          break;
+        }
+        saveCheatSizes();
+        fillCheatSizeSelect('');
+        log('Gespeicherte Größe gelöscht.', { name: name }, 'muted');
+      }
+
+      function initCheatSizeFields() {
+        var sel = byId('cheat-size-preset');
+        if (!sel) return;
+        loadCheatSizes();
+        fillCheatSizeSelect('');
+        sel.addEventListener('change', function () {
+          var value = sel.value;
+          if (value === '__save__') {
+            sel.value = cheatSizeLastPick;
+            var note = (typeof cheatActivePreset === 'function') ? cheatActivePreset() : null;
+            if (!note) { log('Erst eine Notiz auswählen, dann die Größe speichern.', null, 'warn'); return; }
+            var input = byId('cheat-size-name');
+            if (input) input.value = '';
+            showCheatSaveRow('size', true);
+            return;
+          }
+          if (value === '__delete__') {
+            sel.value = cheatSizeLastPick;
+            deleteChosenCheatSize();
+            return;
+          }
+          showCheatSizeSaveRow(false);
+          cheatSizeLastPick = value;
+          if (value.indexOf('n:') === 0) applyCheatSizeByName(value.slice(2));
+        });
+        var okButton = byId('cheat-size-save-ok');
+        if (okButton) okButton.addEventListener('click', commitCheatSizeSave);
+        var cancelButton = byId('cheat-size-save-cancel');
+        if (cancelButton) cancelButton.addEventListener('click', function () { showCheatSizeSaveRow(false); });
+        var nameInput = byId('cheat-size-name');
+        if (nameInput) {
+          nameInput.addEventListener('keydown', function (event) {
+            if (event.key === 'Enter') { event.preventDefault(); commitCheatSizeSave(); }
+            else if (event.key === 'Escape') { event.preventDefault(); showCheatSizeSaveRow(false); }
+          });
+        }
+      }
+
+      function initCheatPositionFields() {
+        initCheatSizeFields();
+        var ids = ['cheat-pos-x', 'cheat-pos-y', 'cheat-pos-w', 'cheat-pos-h'];
+        for (var i = 0; i < ids.length; i++) {
+          var el = byId(ids[i]);
+          if (el) { el.addEventListener('change', applyCheatPositionFields); }
+        }
+        var sel = byId('cheat-pos-preset');
+        if (sel) {
+          loadCheatPositions();
+          fillCheatPosPresetSelect('');
+          sel.addEventListener('change', function () {
+            var value = sel.value;
+            if (value === '__save__') {
+              sel.value = cheatPosLastPick;
+              if (!(typeof cheatActivePreset === 'function' ? cheatActivePreset() : null)) {
+                log('Erst eine Notiz auswählen, dann die Position speichern.', null, 'warn');
+                return;
+              }
+              var nameInput = byId('cheat-size-name');
+              if (nameInput) nameInput.value = '';
+              showCheatSaveRow('pos', true);
+              return;
+            }
+            if (value === '__delete__') {
+              sel.value = cheatPosLastPick;
+              deleteChosenCheatPosition();
+              return;
+            }
+            if (value.indexOf('n:') === 0) {
+              showCheatSaveRow('pos', false);
+              cheatPosLastPick = value;
+              applyCheatPositionByName(value.slice(2));
+              return;
+            }
+            var note = (typeof cheatActivePreset === 'function') ? cheatActivePreset() : null;
+            var spot = CHEAT_POS_SPOTS[value];
+            if (!note || !spot) { cheatPosLastPick = value; return; }
+            // Verschiebt NUR - Breite und Hoehe bleiben unveraendert.
+            var w = cheatPosNum(note.width, 24, 5, 90);
+            var h = cheatPosNum(note.height, 0, 0, 95);
+            function place(size, mode) {
+              if (mode === 'start') return 0;
+              if (mode === 'end') return Math.max(0, 100 - size);
+              return Math.max(0, (100 - size) / 2);
+            }
+            note.x = Math.round(place(w, spot.h) * 10) / 10;
+            note.y = h > 0 ? Math.round(place(h, spot.v) * 10) / 10
+                           : (spot.v === 'start' ? 0 : (spot.v === 'end' ? 90 : 45));
+            syncCheatPositionFields();
+            if (typeof cheatPersist === 'function') cheatPersist();
+            if (typeof cheatRenderMonitor === 'function') cheatRenderMonitor();
+            if (typeof cheatPushDebounced === 'function') cheatPushDebounced();
+            sel.value = '';
+            cheatPosLastPick = '';
+          });
+        }
+      }
+
       function refreshOverlayTargetMonitorControls() {
         var activeNote = (typeof cheatActivePreset === 'function') ? cheatActivePreset() : null;
         if (typeof fillOverlayTargetMonitorSelect === 'function') fillOverlayTargetMonitorSelect(byId('cheat-target-monitor'), activeNote ? activeNote.targetMonitor : -1);
         var noteLabel = byId('cheat-target-monitor-label');
         if (noteLabel) noteLabel.textContent = monitorTargetText('Ausgabe-Monitor', 'Output monitor', 'Monitor de salida');
+        // Positionsfelder mitziehen: einmal verdrahten, danach nur noch abgleichen.
+        if (!window.__cheatPosBound) { window.__cheatPosBound = true; initCheatPositionFields(); }
+        var posLabel = byId('cheat-pos-label');
+        if (posLabel) posLabel.textContent = monitorTargetText('Position', 'Position', 'Posición');
+        var sizeLabel = byId('cheat-size-label');
+        if (sizeLabel) sizeLabel.textContent = monitorTargetText('Größe', 'Size', 'Tamaño');
+        // Beschriftung der Namenszeile kommt aus showCheatSaveRow - sie haengt davon
+        // ab, ob gerade eine Groesse oder eine Position gesichert wird.
+        var saveRow = byId('cheat-size-save-row');
+        if (saveRow) showCheatSaveRow(cheatSaveRowMode, !saveRow.hidden);
+        var sizeOk = byId('cheat-size-save-ok');
+        if (sizeOk) sizeOk.textContent = monitorTargetText('Speichern', 'Save', 'Guardar');
+        var sizeCancel = byId('cheat-size-save-cancel');
+        if (sizeCancel) sizeCancel.textContent = monitorTargetText('Abbrechen', 'Cancel', 'Cancelar');
+        // Reiter-Beschriftungen mitziehen, damit ein Sprachwechsel sie erreicht.
+        var tabLook = byId('cheat-fields-tab-look');
+        if (tabLook) tabLook.textContent = monitorTargetText('Einstellungen', 'Settings', 'Ajustes');
+        var tabPos = byId('cheat-fields-tab-pos');
+        if (tabPos) tabPos.textContent = monitorTargetText('Position', 'Position', 'Posición');
+        // Hinweistexte der beiden Auswahlfelder ebenfalls in der gewählten Sprache.
+        var sizeSelect = byId('cheat-size-preset');
+        if (sizeSelect) sizeSelect.title = monitorTargetText(
+          'Gespeicherte Größe anwenden – mehrere Notizen bekommen so exakt dieselbe Breite und Höhe',
+          'Apply a saved size so several notes get exactly the same width and height',
+          'Aplicar un tamaño guardado para que varias notas tengan exactamente el mismo ancho y alto');
+        var posSelect = byId('cheat-pos-preset');
+        if (posSelect) posSelect.title = monitorTargetText(
+          'Notiz an eine feste Stelle setzen oder eine gespeicherte Position übernehmen – die Größe bleibt unverändert',
+          'Move the note to a fixed spot or apply a saved position – the size stays unchanged',
+          'Colocar la nota en un punto fijo o aplicar una posición guardada: el tamaño no cambia');
+        var heightInput = byId('cheat-pos-h');
+        if (heightInput) heightInput.title = monitorTargetText(
+          '0 = Höhe folgt dem Text', '0 = height follows the text', '0 = la altura sigue al texto');
+        syncCheatPositionFields();
         if (typeof renderLinks === 'function') renderLinks();
       }
 

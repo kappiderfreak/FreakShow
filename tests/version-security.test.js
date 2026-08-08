@@ -10,13 +10,13 @@ const html = read(path.join('app', 'websocket-diagnose.html'));
 const bridge = read('EmbeddedBridge.ps1');
 const updateManifest = JSON.parse(read('update-manifest.json'));
 
-assert.equal(read('VERSION.txt').trim(), '1.4.1');
-assert.match(read('VersionInfo.cs'), /AssemblyFileVersion\("1\.4\.1\.0"\)/);
-assert.match(read('VersionInfo.cs'), /Current = "1\.4\.1"/);
-assert.match(read('UpdaterVersionInfo.cs'), /AssemblyInformationalVersion\("1\.4\.1"\)/);
-assert.match(read('README-FIRST.txt'), /^FreakShow 1\.4\.1/m);
-assert.equal(updateManifest.version, '1.4.1');
-assert.match(updateManifest.packageUrl, /\/v1\.4\.1\/FreakShow-update-1\.4\.1\.zip$/);
+assert.equal(read('VERSION.txt').trim(), '1.4.2');
+assert.match(read('VersionInfo.cs'), /AssemblyFileVersion\("1\.4\.2\.0"\)/);
+assert.match(read('VersionInfo.cs'), /Current = "1\.4\.2"/);
+assert.match(read('UpdaterVersionInfo.cs'), /AssemblyInformationalVersion\("1\.4\.2"\)/);
+assert.match(read('README-FIRST.txt'), /^FreakShow 1\.4\.2/m);
+assert.equal(updateManifest.version, '1.4.2');
+assert.match(updateManifest.packageUrl, /\/v1\.4\.2\/FreakShow-update-1\.4\.2\.zip$/);
 
 assert.match(
   html,
