@@ -19,7 +19,7 @@ Andere Ports sind möglich. Wichtig ist, dass Server und FreakShow denselben Wer
 In Streamer.bot den WebSocket-Server öffnen, aktivieren und den verwendeten Port notieren. Im Standardbeispiel ist das `8081`.
 
 - FreakShow und Streamer.bot auf demselben PC: Host `127.0.0.1`.
-- Streamer.bot auf einem anderen PC: lokale IPv4-Adresse dieses PCs, zum Beispiel `192.168.1.50`.
+- Streamer.bot auf einem anderen PC: lokale IPv4-Adresse dieses PCs (`STREAMERBOT-PC-IP`).
 - Ein WebSocket-Passwort nur dort eintragen, wo FreakShow beziehungsweise das verwendete Widget es ausdrücklich unterstützt.
 
 ### 2. FreakShow verbinden
@@ -53,8 +53,8 @@ Das Kontextmenü des Notizeditors kann verfügbare Streamer.bot-Variablen einfü
 
 ## Zugriff von einem zweiten PC
 
-1. Die IPv4-Adresse des FreakShow-PCs ermitteln, beispielsweise `192.168.1.20`.
-2. Auf dem zweiten Gerät `http://192.168.1.20:18081/` öffnen.
+1. Die IPv4-Adresse des FreakShow-PCs ermitteln (`FREAKSHOW-PC-IP`).
+2. Auf dem zweiten Gerät `http://FREAKSHOW-PC-IP:18081/` öffnen.
 3. Falls nötig FreakShow in der Windows-Firewall ausschließlich für **private Netzwerke** erlauben.
 4. Unter **Verbindungen → Erlaubte Geräte** die IP des zweiten Geräts hinzufügen.
 

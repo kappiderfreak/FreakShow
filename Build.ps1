@@ -12,6 +12,7 @@ $hostArgs = @(
   '/nologo', '/target:winexe', '/platform:x64', '/optimize+', '/debug-',
   ('/out:' + (Join-Path $root 'FreakShow.exe')),
   ('/win32icon:' + (Join-Path $root 'OverlayIcon.ico')),
+  ('/win32manifest:' + (Join-Path $root 'FreakShow.manifest')),
   ('/resource:' + (Join-Path $root 'EmbeddedBridge.ps1') + ',EmbeddedBridge.ps1'),
   ('/resource:' + (Join-Path $root 'FreakShow-Chat-Sender.sb') + ',FreakShow.ChatSenderImport'),
   ('/resource:' + (Join-Path $root 'streamerbot-output-receiver.import.txt') + ',FreakShow.OutputReceiverImport'),

@@ -1323,6 +1323,57 @@ function Get-ExactGameProcesses {
   return @($result)
 }
 
+function Get-GameProcessKillTargets {
+  param([string]$Name)
+  $safeName = Normalize-GameProcessName $Name
+  if (-not $safeName -or (Test-ProtectedGameProcessName $safeName)) { return @() }
+
+  $names = @($safeName)
+  # Unreal-Spiele starten haeufig ueber einen kleinen Launcher-Prozess und
+  # fuehren das eigentliche Spiel als "*-Win64-Shipping.exe" aus. Wird nur
+  # der Shipping-Prozess beendet, kann der Launcher weiterlaufen oder das
+  # Spiel erneut festhalten. Deshalb wird der exakt abgeleitete Launcher-Name
+  # sicher mit einbezogen; Plattform-Launcher wie Steam bleiben geschuetzt.
+  if ($safeName -match '^(?<launcher>.+?)-(?:Win32|Win64|Linux)-Shipping(?:-.+)?$') {
+    $launcherName = Normalize-GameProcessName $Matches.launcher
+    if ($launcherName -and -not (Test-ProtectedGameProcessName $launcherName) -and $names -notcontains $launcherName) {
+      $names += $launcherName
+    }
+  }
+
+  $result = @()
+  foreach ($candidateName in $names) {
+    foreach ($process in @(Get-ExactGameProcesses $candidateName)) {
+      if (-not @($result | Where-Object { $_.Id -eq $process.Id }).Count) { $result += $process }
+    }
+  }
+  return @($result)
+}
+
+function Stop-GameProcessTreeNow {
+  param([int]$ProcessId)
+  if ($ProcessId -le 0 -or $ProcessId -eq $PID) { return $false }
+  if (-not (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue)) { return $true }
+  try {
+    $taskkill = Start-Process -FilePath 'taskkill.exe' -ArgumentList @('/PID',([string]$ProcessId),'/T','/F') -WindowStyle Hidden -Wait -PassThru -ErrorAction Stop
+    if ($taskkill.ExitCode -eq 0 -or -not (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue)) { return $true }
+  } catch {
+    try {
+      Stop-Process -Id $ProcessId -Force -ErrorAction Stop
+      if (-not (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue)) { return $true }
+    } catch {}
+  }
+
+  # Erhoeht gestartete Spiele duerfen nur nach der exakt validierten Prozess-ID
+  # beendet werden. Falls noetig erscheint dafuer einmalig die Windows-UAC-Abfrage.
+  try {
+    $elevatedTaskkill = Start-Process -FilePath 'taskkill.exe' -ArgumentList @('/PID',([string]$ProcessId),'/T','/F') -Verb RunAs -Wait -PassThru -ErrorAction Stop
+    return ($elevatedTaskkill.ExitCode -eq 0 -or -not (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue))
+  } catch {
+    return $false
+  }
+}
+
 function Get-GameControlProcessesJson {
   $entries = @{}
   foreach ($process in @(Get-Process -ErrorAction SilentlyContinue)) {
@@ -1355,7 +1406,7 @@ function Start-DeferredGameProcessKill {
   $delay = Clamp-Int -Value $DelayMs -Fallback 3000 -Min 500 -Max 30000
   # Nur validierte Integer-IDs werden in den Hilfsprozess eingebaut. Dadurch gibt
   # es keinen frei konfigurierbaren Shell-/PowerShell-Code in der Weboberflaeche.
-  $scriptText = 'Start-Sleep -Milliseconds ' + $delay + '; foreach ($targetId in @(' + ($ids -join ',') + ')) { Stop-Process -Id $targetId -Force -ErrorAction SilentlyContinue }'
+  $scriptText = 'Start-Sleep -Milliseconds ' + $delay + '; foreach ($targetId in @(' + ($ids -join ',') + ')) { Start-Process -FilePath taskkill.exe -ArgumentList @(''/PID'',([string]$targetId),''/T'',''/F'') -WindowStyle Hidden -Wait -ErrorAction SilentlyContinue | Out-Null; Stop-Process -Id $targetId -Force -ErrorAction SilentlyContinue }'
   $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($scriptText))
   Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-EncodedCommand',$encoded) -WindowStyle Hidden | Out-Null
 }
@@ -1365,7 +1416,7 @@ function Invoke-GameKillControl {
   $processName = Normalize-GameProcessName $Item.processName
   if (-not $processName) { throw 'Kein gültiges Spiel ausgewählt.' }
   if (Test-ProtectedGameProcessName $processName) { throw 'Dieser Prozess ist geschützt und darf nicht beendet werden.' }
-  $targets = @(Get-ExactGameProcesses $processName)
+  $targets = @(Get-GameProcessKillTargets $processName)
   if ($targets.Count -eq 0) { throw 'Das ausgewählte Spiel läuft nicht.' }
   $modeRaw = ([string]$Item.killMode).Trim().ToLowerInvariant()
   $mode = if ($modeRaw -eq 'force') { 'force' } elseif ($modeRaw -eq 'graceful') { 'graceful' } else { 'graceful-force' }
@@ -1373,8 +1424,17 @@ function Invoke-GameKillControl {
   $ids = @($targets | ForEach-Object { [int]$_.Id })
   $requested = 0
   if ($mode -eq 'force') {
-    foreach ($process in $targets) {
-      try { Stop-Process -Id $process.Id -Force -ErrorAction Stop; $requested++ } catch {}
+    # Zuerst den abgeleiteten Launcher beenden. taskkill /T nimmt dabei den
+    # Shipping-Prozess direkt mit; der zweite Durchlauf faengt verwaiste
+    # Kindprozesse ab.
+    $orderedTargets = @($targets | Sort-Object @{ Expression = { if ([string]$_.ProcessName -eq $processName) { 1 } else { 0 } } })
+    foreach ($process in $orderedTargets) {
+      if (Stop-GameProcessTreeNow -ProcessId ([int]$process.Id)) { $requested++ }
+    }
+    Start-Sleep -Milliseconds 200
+    $remaining = @(Get-GameProcessKillTargets $processName)
+    if ($remaining.Count -gt 0) {
+      throw 'Das Spiel konnte nicht vollständig beendet werden. Bitte FreakShow gegebenenfalls als Administrator starten.'
     }
   } else {
     foreach ($process in $targets) {
@@ -1914,17 +1974,53 @@ function Build-CheatItemJson {
   param([object]$o)
   # Baut EINEN Text als sicheres JSON-Objekt (fuer die Liste). Fehlende Felder -> Standard.
   $id        = ''
+  $name      = 'Text 1'
+  $group     = ''
   $enabled   = $false
   $text      = ''
   $mode      = 'color'
+  $frameEnabled = $true
+  $backgroundEnabled = $false
   $frameColor= '#101826'
   $bgImage   = ''
+  $bgImageName = ''
   $bgOpacity = 85
+  $imagePositionX = 0
+  $imagePositionY = 0
+  $imagePositionWidth = 100
+  $imagePositionHeight = 100
+  $imageFit = 'cover'
   $textColor = '#e8f0ff'
   $textOpacity = 100
   $font      = 'Segoe UI, sans-serif'
-  $fontSize  = 18
+  $fontSize  = 20
   $contentScale = 100
+  $textAlignX = 'start'
+  $textAlignY = 'start'
+  $fitText = $false
+  $textFreePosition = $false
+  $textPositionX = 0
+  $textPositionY = 0
+  $textPositionWidth = 100
+  $textPositionHeight = 100
+  $textStyle = 'normal'
+  $textTransform = 'none'
+  $antialias = $true
+  $verticalText = $false
+  $animation = 'none'
+  $textEnterAnimation = 'none'
+  $textExitAnimation = 'none'
+  $imageEnterAnimation = 'none'
+  $imageExitAnimation = 'none'
+  $animationUnit = 'ms'
+  $animationDuration = 400
+  $outlineEnabled = $false
+  $outlineColor = '#000000'
+  $outlineSize = 2
+  $gradientEnabled = $false
+  $gradientColor = '#8ab4f8'
+  $gradientOpacity = 100
+  $gradientAngle = 90
   # Position/Breite/Hoehe in PROZENT des Monitors (frei positionierbar per Ziehen).
   $x         = 66
   $y         = 6
@@ -1934,21 +2030,56 @@ function Build-CheatItemJson {
   $updatedAt = (Get-NowMilliseconds)
   $trigger   = ''
   $triggerOn = $false
-  # -1 = global ausgewählter Overlay-Monitor (Standard für alte Notizen).
   $targetMonitor = -1
   if ($null -ne $o) {
     if ($null -ne $o.id)          { $id = [string]$o.id }
+    if ($null -ne $o.name)        { $name = [string]$o.name }
+    if ($null -ne $o.group)       { $group = [string]$o.group }
     if ($null -ne $o.enabled)     { $enabled = [bool]$o.enabled }
     if ($null -ne $o.text)        { $text = [string]$o.text }
     if ($null -ne $o.mode)        { $m = ([string]$o.mode).ToLowerInvariant(); if ($m -eq 'image') { $mode = 'image' } else { $mode = 'color' } }
+    if ($null -ne $o.frameEnabled) { $frameEnabled = [bool]$o.frameEnabled }
+    if ($null -ne $o.backgroundEnabled) { $backgroundEnabled = [bool]$o.backgroundEnabled }
     if ($null -ne $o.frameColor)  { $frameColor = [string]$o.frameColor }
     if ($null -ne $o.bgImage)     { $bgImage = [string]$o.bgImage }
+    if ($null -ne $o.bgImageName) { $bgImageName = [string]$o.bgImageName }
     if ($null -ne $o.bgOpacity)   { try { $bgOpacity = [int][double]$o.bgOpacity } catch {} }
+    if ($null -ne $o.imagePositionX) { try { $imagePositionX = [double]$o.imagePositionX } catch {} }
+    if ($null -ne $o.imagePositionY) { try { $imagePositionY = [double]$o.imagePositionY } catch {} }
+    if ($null -ne $o.imagePositionWidth) { try { $imagePositionWidth = [double]$o.imagePositionWidth } catch {} }
+    if ($null -ne $o.imagePositionHeight) { try { $imagePositionHeight = [double]$o.imagePositionHeight } catch {} }
+    if ($null -ne $o.imageFit) { $imageFit = [string]$o.imageFit }
     if ($null -ne $o.textColor)   { $textColor = [string]$o.textColor }
     if ($null -ne $o.textOpacity) { try { $textOpacity = [int][double]$o.textOpacity } catch {} }
     if ($null -ne $o.font)        { $font = [string]$o.font }
     if ($null -ne $o.fontSize)    { try { $fontSize = [int][double]$o.fontSize } catch {} }
     if ($null -ne $o.contentScale) { try { $contentScale = [int][double]$o.contentScale } catch {} }
+    if ($null -ne $o.textAlignX) { $textAlignX = [string]$o.textAlignX }
+    if ($null -ne $o.textAlignY) { $textAlignY = [string]$o.textAlignY }
+    if ($null -ne $o.fitText) { $fitText = [bool]$o.fitText }
+    if ($null -ne $o.textFreePosition) { $textFreePosition = [bool]$o.textFreePosition }
+    if ($null -ne $o.textPositionX) { try { $textPositionX = [double]$o.textPositionX } catch {} }
+    if ($null -ne $o.textPositionY) { try { $textPositionY = [double]$o.textPositionY } catch {} }
+    if ($null -ne $o.textPositionWidth) { try { $textPositionWidth = [double]$o.textPositionWidth } catch {} }
+    if ($null -ne $o.textPositionHeight) { try { $textPositionHeight = [double]$o.textPositionHeight } catch {} }
+    if ($null -ne $o.textStyle) { $textStyle = [string]$o.textStyle }
+    if ($null -ne $o.textTransform) { $textTransform = [string]$o.textTransform }
+    if ($null -ne $o.antialias) { $antialias = [bool]$o.antialias }
+    if ($null -ne $o.verticalText) { $verticalText = [bool]$o.verticalText }
+    if ($null -ne $o.animation) { $animation = [string]$o.animation }
+    if ($null -ne $o.textEnterAnimation) { $textEnterAnimation = [string]$o.textEnterAnimation } else { $textEnterAnimation = $animation }
+    if ($null -ne $o.textExitAnimation) { $textExitAnimation = [string]$o.textExitAnimation }
+    if ($null -ne $o.imageEnterAnimation) { $imageEnterAnimation = [string]$o.imageEnterAnimation } else { $imageEnterAnimation = $animation }
+    if ($null -ne $o.imageExitAnimation) { $imageExitAnimation = [string]$o.imageExitAnimation }
+    if ($null -ne $o.animationUnit) { $animationUnit = [string]$o.animationUnit }
+    if ($null -ne $o.animationDuration) { try { $animationDuration = [int][double]$o.animationDuration } catch {} }
+    if ($null -ne $o.outlineEnabled) { $outlineEnabled = [bool]$o.outlineEnabled }
+    if ($null -ne $o.outlineColor) { $outlineColor = [string]$o.outlineColor }
+    if ($null -ne $o.outlineSize) { try { $outlineSize = [int][double]$o.outlineSize } catch {} }
+    if ($null -ne $o.gradientEnabled) { $gradientEnabled = [bool]$o.gradientEnabled }
+    if ($null -ne $o.gradientColor) { $gradientColor = [string]$o.gradientColor }
+    if ($null -ne $o.gradientOpacity) { try { $gradientOpacity = [int][double]$o.gradientOpacity } catch {} }
+    if ($null -ne $o.gradientAngle) { try { $gradientAngle = [int][double]$o.gradientAngle } catch {} }
     if ($null -ne $o.x)           { try { $x = [double]$o.x } catch {} }
     if ($null -ne $o.y)           { try { $y = [double]$o.y } catch {} }
     if ($null -ne $o.width)       { try { $width = [double]$o.width } catch {} }
@@ -1960,29 +2091,80 @@ function Build-CheatItemJson {
   }
   if ($bgOpacity -lt 0) { $bgOpacity = 0 }; if ($bgOpacity -gt 100) { $bgOpacity = 100 }
   if ($textOpacity -lt 0) { $textOpacity = 0 }; if ($textOpacity -gt 100) { $textOpacity = 100 }
-  if ($fontSize -lt 8) { $fontSize = 8 }; if ($fontSize -gt 96) { $fontSize = 96 }
-  if ($contentScale -lt 25) { $contentScale = 25 }; if ($contentScale -gt 200) { $contentScale = 200 }
+  if ($fontSize -lt 10) { $fontSize = 10 }; if ($fontSize -gt 160) { $fontSize = 160 }
+  $contentScale = Clamp-Int -Value $contentScale -Fallback 100 -Min 25 -Max 200
   if ($x -lt 0) { $x = 0 }; if ($x -gt 100) { $x = 100 }
   if ($y -lt 0) { $y = 0 }; if ($y -gt 100) { $y = 100 }
   if ($width -lt 5) { $width = 5 }; if ($width -gt 90) { $width = 90 }
   if ($height -lt 0) { $height = 0 }; if ($height -gt 0 -and $height -lt 4) { $height = 4 }; if ($height -gt 95) { $height = 95 }
   if ($height -gt 0 -and ($y + $height) -gt 100) { $y = 100 - $height }
-  if ($targetMonitor -lt -1) { $targetMonitor = -1 }; if ($targetMonitor -gt 31) { $targetMonitor = 31 }
+  if ($imagePositionX -lt 0) { $imagePositionX = 0 }; if ($imagePositionX -gt 95) { $imagePositionX = 95 }
+  if ($imagePositionY -lt 0) { $imagePositionY = 0 }; if ($imagePositionY -gt 95) { $imagePositionY = 95 }
+  if ($imagePositionWidth -lt 5) { $imagePositionWidth = 5 }; if (($imagePositionX + $imagePositionWidth) -gt 100) { $imagePositionWidth = 100 - $imagePositionX }
+  if ($imagePositionHeight -lt 5) { $imagePositionHeight = 5 }; if (($imagePositionY + $imagePositionHeight) -gt 100) { $imagePositionHeight = 100 - $imagePositionY }
+  if ($textPositionX -lt 0) { $textPositionX = 0 }; if ($textPositionX -gt 95) { $textPositionX = 95 }
+  if ($textPositionY -lt 0) { $textPositionY = 0 }; if ($textPositionY -gt 95) { $textPositionY = 95 }
+  if ($textPositionWidth -lt 5) { $textPositionWidth = 5 }; if (($textPositionX + $textPositionWidth) -gt 100) { $textPositionWidth = 100 - $textPositionX }
+  if ($textPositionHeight -lt 5) { $textPositionHeight = 5 }; if (($textPositionY + $textPositionHeight) -gt 100) { $textPositionHeight = 100 - $textPositionY }
+  if ($animationDuration -lt 0) { $animationDuration = 0 }; if ($animationDuration -gt 60000) { $animationDuration = 60000 }
+  if ($outlineSize -lt 0) { $outlineSize = 0 }; if ($outlineSize -gt 20) { $outlineSize = 20 }
+  if ($gradientOpacity -lt 0) { $gradientOpacity = 0 }; if ($gradientOpacity -gt 100) { $gradientOpacity = 100 }
+  if ($gradientAngle -lt 0) { $gradientAngle = 0 }; if ($gradientAngle -gt 360) { $gradientAngle = 360 }
+  if ($targetMonitor -lt -1) { $targetMonitor = -1 }; if ($targetMonitor -gt 63) { $targetMonitor = 63 }
   $x = [math]::Round($x, 2); $y = [math]::Round($y, 2); $width = [math]::Round($width, 2); $height = [math]::Round($height, 2)
+  $imagePositionX = [math]::Round($imagePositionX, 2); $imagePositionY = [math]::Round($imagePositionY, 2); $imagePositionWidth = [math]::Round($imagePositionWidth, 2); $imagePositionHeight = [math]::Round($imagePositionHeight, 2)
+  $textPositionX = [math]::Round($textPositionX, 2); $textPositionY = [math]::Round($textPositionY, 2); $textPositionWidth = [math]::Round($textPositionWidth, 2); $textPositionHeight = [math]::Round($textPositionHeight, 2)
   if ([string]::IsNullOrWhiteSpace($id)) { $id = 'legacy' }
+  if ([string]::IsNullOrWhiteSpace($name)) { $name = $id }
   $sb = New-Object System.Text.StringBuilder
   [void]$sb.Append('{"id":"' + (Escape-JsonString $id) + '"')
+  [void]$sb.Append(',"name":"' + (Escape-JsonString $name) + '"')
+  [void]$sb.Append(',"group":"' + (Escape-JsonString $group) + '"')
   [void]$sb.Append(',"enabled":' + $(if ($enabled) { 'true' } else { 'false' }))
   [void]$sb.Append(',"text":"' + (Escape-JsonMultiline $text) + '"')
   [void]$sb.Append(',"mode":"' + (Escape-JsonString $mode) + '"')
+  [void]$sb.Append(',"frameEnabled":' + $(if ($frameEnabled) { 'true' } else { 'false' }))
+  [void]$sb.Append(',"backgroundEnabled":' + $(if ($backgroundEnabled) { 'true' } else { 'false' }))
   [void]$sb.Append(',"frameColor":"' + (Escape-JsonString $frameColor) + '"')
   [void]$sb.Append(',"bgImage":"' + (Escape-JsonString $bgImage) + '"')
+  [void]$sb.Append(',"bgImageName":"' + (Escape-JsonString $bgImageName) + '"')
   [void]$sb.Append(',"bgOpacity":' + $bgOpacity)
+  [void]$sb.Append(',"imagePositionX":' + $imagePositionX)
+  [void]$sb.Append(',"imagePositionY":' + $imagePositionY)
+  [void]$sb.Append(',"imagePositionWidth":' + $imagePositionWidth)
+  [void]$sb.Append(',"imagePositionHeight":' + $imagePositionHeight)
+  [void]$sb.Append(',"imageFit":"' + (Escape-JsonString $imageFit) + '"')
   [void]$sb.Append(',"textColor":"' + (Escape-JsonString $textColor) + '"')
   [void]$sb.Append(',"textOpacity":' + $textOpacity)
   [void]$sb.Append(',"font":"' + (Escape-JsonString $font) + '"')
   [void]$sb.Append(',"fontSize":' + $fontSize)
   [void]$sb.Append(',"contentScale":' + $contentScale)
+  [void]$sb.Append(',"textAlignX":"' + (Escape-JsonString $textAlignX) + '"')
+  [void]$sb.Append(',"textAlignY":"' + (Escape-JsonString $textAlignY) + '"')
+  [void]$sb.Append(',"fitText":' + $(if ($fitText) { 'true' } else { 'false' }))
+  [void]$sb.Append(',"textFreePosition":' + $(if ($textFreePosition) { 'true' } else { 'false' }))
+  [void]$sb.Append(',"textPositionX":' + $textPositionX)
+  [void]$sb.Append(',"textPositionY":' + $textPositionY)
+  [void]$sb.Append(',"textPositionWidth":' + $textPositionWidth)
+  [void]$sb.Append(',"textPositionHeight":' + $textPositionHeight)
+  [void]$sb.Append(',"textStyle":"' + (Escape-JsonString $textStyle) + '"')
+  [void]$sb.Append(',"textTransform":"' + (Escape-JsonString $textTransform) + '"')
+  [void]$sb.Append(',"antialias":' + $(if ($antialias) { 'true' } else { 'false' }))
+  [void]$sb.Append(',"verticalText":' + $(if ($verticalText) { 'true' } else { 'false' }))
+  [void]$sb.Append(',"animation":"' + (Escape-JsonString $animation) + '"')
+  [void]$sb.Append(',"textEnterAnimation":"' + (Escape-JsonString $textEnterAnimation) + '"')
+  [void]$sb.Append(',"textExitAnimation":"' + (Escape-JsonString $textExitAnimation) + '"')
+  [void]$sb.Append(',"imageEnterAnimation":"' + (Escape-JsonString $imageEnterAnimation) + '"')
+  [void]$sb.Append(',"imageExitAnimation":"' + (Escape-JsonString $imageExitAnimation) + '"')
+  [void]$sb.Append(',"animationUnit":"' + (Escape-JsonString $animationUnit) + '"')
+  [void]$sb.Append(',"animationDuration":' + $animationDuration)
+  [void]$sb.Append(',"outlineEnabled":' + $(if ($outlineEnabled) { 'true' } else { 'false' }))
+  [void]$sb.Append(',"outlineColor":"' + (Escape-JsonString $outlineColor) + '"')
+  [void]$sb.Append(',"outlineSize":' + $outlineSize)
+  [void]$sb.Append(',"gradientEnabled":' + $(if ($gradientEnabled) { 'true' } else { 'false' }))
+  [void]$sb.Append(',"gradientColor":"' + (Escape-JsonString $gradientColor) + '"')
+  [void]$sb.Append(',"gradientOpacity":' + $gradientOpacity)
+  [void]$sb.Append(',"gradientAngle":' + $gradientAngle)
   [void]$sb.Append(',"x":' + $x)
   [void]$sb.Append(',"y":' + $y)
   [void]$sb.Append(',"width":' + $width)
@@ -2794,6 +2976,35 @@ function Write-HttpResponse {
   $Stream.Write($headerBytes, 0, $headerBytes.Length)
   if ($bodyBytes.Length -gt 0) {
     $Stream.Write($bodyBytes, 0, $bodyBytes.Length)
+  }
+  $Stream.Flush()
+}
+
+function Write-BinaryBytesResponse {
+  param(
+    [System.IO.Stream]$Stream,
+    [byte[]]$BodyBytes,
+    [string]$ContentType = 'application/octet-stream'
+  )
+
+  if ($null -eq $BodyBytes) { $BodyBytes = [byte[]]::new(0) }
+  $corsHeaders = @(Get-CorsResponseHeaders)
+  $headers = @(
+    'HTTP/1.1 200 OK',
+    "Content-Type: $ContentType",
+    "Content-Length: $($BodyBytes.Length)"
+  ) + $corsHeaders + @(
+    'Permissions-Policy: local-network-access=*, local-network=*, loopback-network=*',
+    'Cache-Control: no-store',
+    'Connection: close',
+    '',
+    ''
+  ) -join "`r`n"
+
+  $headerBytes = [System.Text.Encoding]::ASCII.GetBytes($headers)
+  $Stream.Write($headerBytes, 0, $headerBytes.Length)
+  if ($BodyBytes.Length -gt 0) {
+    $Stream.Write($BodyBytes, 0, $BodyBytes.Length)
   }
   $Stream.Flush()
 }

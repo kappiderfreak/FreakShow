@@ -246,6 +246,7 @@
       bubbleTextStyle: normalizeBubbleTextStyle(item.bubbleTextStyle),
       bubbleTextColor: /^#[0-9a-f]{6}$/i.test(item.bubbleTextColor || '') ? String(item.bubbleTextColor).toLowerCase() : '#ffffff',
       bubbleAnimation: normalizeBubbleAnimation(item.bubbleAnimation),
+      bubbleExitAnimation: normalizeBubbleAnimation(item.bubbleExitAnimation == null ? item.bubbleAnimation : item.bubbleExitAnimation),
       bubbleAnimationUnit: normalizeBubbleAnimationUnit(item.bubbleAnimationUnit),
       bubbleAnimationDuration: number(item.bubbleAnimationDuration, 0.7, 0.2, 3),
       bubbleReadFromFile: !!item.bubbleReadFromFile,
@@ -254,6 +255,7 @@
       bubbleTextTransform: normalizeBubbleTextTransform(item.bubbleTextTransform),
       bubbleVertical: !!item.bubbleVertical,
       bubbleTextOpacity: number(item.bubbleTextOpacity, 100, 0, 100),
+      bubbleFitText: !!item.bubbleFitText,
       bubbleGradientEnabled: !!item.bubbleGradientEnabled,
       bubbleGradientColor: /^#[0-9a-f]{6}$/i.test(item.bubbleGradientColor || '') ? String(item.bubbleGradientColor).toLowerCase() : '#000000',
       bubbleGradientOpacity: number(item.bubbleGradientOpacity, 0, 0, 100),
@@ -416,7 +418,7 @@
     var bubble = video && video.__kappiBubble;
     if (!bubble || bubble.__kappiExitStarted || !config) return;
     bubble.__kappiExitStarted = true;
-    var animation = normalizeBubbleAnimation(config.bubbleAnimation);
+    var animation = normalizeBubbleAnimation(config.bubbleExitAnimation == null ? config.bubbleAnimation : config.bubbleExitAnimation);
     // Ohne Einblendanimation bleibt es beim bisherigen Verhalten (hart weg).
     if (animation === 'none' || typeof bubble.animate !== 'function') return;
     var durationMs = Math.round(number(config.bubbleAnimationDuration, 0.7, 0.2, 3) * 1000);
@@ -677,7 +679,7 @@
   // bubbleFontSize ist die Obergrenze; applyBubbleTextAppearance setzt sie bei
   // jedem Aufruf zurueck, daher gibt es keinen Ratchet-Effekt ueber die Polls.
   function fitBubbleTextToArea(config, textElement) {
-    if (!config || !config.bubbleTextAreaOn || !textElement) return;
+    if (!config || (!config.bubbleTextAreaOn && !config.bubbleFitText) || !textElement) return;
     var box = textElement.parentNode;
     if (!box || !box.getAttribute || box.getAttribute('data-kappi-video-bubble-textbox') !== '1') return;
     var size = number(config.bubbleFontSize, 48, 12, 160);

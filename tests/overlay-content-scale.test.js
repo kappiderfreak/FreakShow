@@ -40,14 +40,17 @@ assert.match(images, /Number\(im\.width \|\| 0\) \* contentScale/);
 // jeden Inhalt darin. Ein Regler fuer die komplette Notiz.
 assert.match(notes, /var width = clampNum\(cfg\.width, 5, 90, 24\) \* contentScale/);
 assert.match(notes, /var height = clampNum\(cfg\.height, 0, 95, 0\) \* contentScale/);
-assert.match(notes, /clampNum\(cfg\.fontSize, 8, 96, 20\) \* contentScale/);
+assert.match(notes, /clampNum\(cfg\.fontSize, 10, 160, 20\) \* contentScale/);
 assert.match(notes, /padding:' \+ \(10 \* contentScale\)/);
 assert.match(notes, /imageEmojiSize \* contentScale/);
 // Auch die festen Pixel aus dem Markdown (Tabellenzellen, Textschatten) skalieren
 // mit - sonst sieht das Overlay anders aus als die Vorschau.
 assert.match(notes, /cells\[ci\]\.style\.borderWidth = \(1 \* contentScale\)/);
 assert.match(notes, /cells\[ci\]\.style\.padding = \(2 \* contentScale\)/);
-assert.match(notes, /textShadow = '0 ' \+ \(1 \* contentScale\)/);
+// Der Textschatten wird ueber eine Variable gebaut, damit die Kontur davorgesetzt
+// werden kann - die Skalierung mit contentScale bleibt dabei erhalten.
+assert.match(notes, /txt\.style\.textShadow = '0 ' \+ \(1 \* contentScale\)/);
+assert.match(notes, /clampNum\(cfg\.outlineSize, 0, 20, 2\) \* contentScale/);
 // Der Wert muss auch WIRKLICH beim Overlay ankommen. Fehlte er in der Nutzlast,
 // skalierte nur die Vorschau und der echte Bildschirm blieb auf 100 %.
 assert.match(html, /contentScale: cheatClamp\(p\.contentScale == null \? 100 : p\.contentScale, 25, 200\)/);
