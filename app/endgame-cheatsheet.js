@@ -13,13 +13,15 @@
   window.__KAPPI_CHEATSHEET_ACTIVE__ = true;
 
   var URL_ = location.origin + '/cheatsheet';
-  var POLL_MS = 1500;  // zeitnah, ohne die lokale Bridge mehrfach pro Sekunde zu belasten
+  var POLL_MS = 250;  // Positions-/Groessenaenderungen aus dem Editor nahezu live uebernehmen
+  var pollBusy = false; // keine ueberlappenden Antworten, die neue Geometrie zurueckdrehen koennen
   var LAYER_ID = 'kappi-cheatsheet-layer';
   var lastKey = '';
   var lastItems = [];
   var trigVis = {};   // pro Text-ID: per Streamer.bot-Trigger ein-/ausgeblendet (unabh. vom Schalter)
   var trigKeys = {};  // erkennt ausgeschaltete oder geaenderte Trigger und verwirft alte Sichtbarkeit
   var lastEnabledCs = {}; // zuletzt gesehener Schalter-Zustand je Text (Flanken-Erkennung, s.u.)
+  var noteHideTimers = {}; // Ausblendanimation erst beenden, danach das Element verstecken
 
   // Streamer.bot-Globals fuer Notiz-Tokens:
   // {{sb:Name}} = gespeichert, {{sb-temp:Name}} = temporaer.
@@ -165,26 +167,239 @@
 
   function ensureItemEl(layer, id) {
     var el = document.getElementById('kcs-item-' + id);
-    if (el) return el;
-    el = document.createElement('div');
-    el.id = 'kcs-item-' + id;
-    el.style.cssText = 'position:absolute; box-sizing:border-box; pointer-events:none; display:none;';
-    var bg = document.createElement('div');
-    bg.className = 'kcs-bg';
-    bg.style.cssText = 'position:absolute; inset:0; border-radius:inherit; z-index:0; background-size:cover; background-position:center; background-repeat:no-repeat;';
-    var txt = document.createElement('div');
-    txt.className = 'kcs-text';
-    txt.style.cssText = 'position:relative; z-index:1; white-space:pre-wrap; word-break:break-word; overflow-wrap:break-word;';
-    el.appendChild(bg);
-    el.appendChild(txt);
-    layer.appendChild(el);
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'kcs-item-' + id;
+      el.style.cssText = 'position:absolute; box-sizing:border-box; pointer-events:none; display:none;';
+      var bg = document.createElement('div');
+      bg.className = 'kcs-bg';
+      bg.style.cssText = 'position:absolute; inset:0; border-radius:inherit; z-index:0; background-size:cover; background-position:center; background-repeat:no-repeat;';
+      var frame = document.createElement('div');
+      frame.className = 'kcs-text-frame';
+      var txt = document.createElement('div');
+      txt.className = 'kcs-text';
+      txt.style.cssText = 'position:relative; z-index:1; white-space:pre-wrap; word-break:break-word; overflow-wrap:break-word;';
+      frame.appendChild(txt);
+      el.appendChild(bg);
+      el.appendChild(frame);
+      layer.appendChild(el);
+    } else if (!el.querySelector('.kcs-text-frame')) {
+      // Laufende Overlay-Seiten ohne Neuladen verlustfrei auf die neue, mit der
+      // Vorschau identische Text-Frame-Struktur umstellen.
+      var oldText = el.querySelector('.kcs-text');
+      var migratedFrame = document.createElement('div');
+      migratedFrame.className = 'kcs-text-frame';
+      if (oldText) migratedFrame.appendChild(oldText);
+      el.appendChild(migratedFrame);
+    }
     return el;
+  }
+  function colorWithOpacity(hex, opacity) {
+    var match = /^#([0-9a-f]{6})$/i.exec(String(hex || ''));
+    if (!match) return String(hex || '#8ab4f8');
+    var value = parseInt(match[1], 16);
+    return 'rgba(' + ((value >> 16) & 255) + ',' + ((value >> 8) & 255) + ',' + (value & 255) + ',' + (clampNum(opacity, 0, 100, 100) / 100) + ')';
+  }
+
+  function noteAnimationKind(value, legacy) {
+    value = String(value == null ? (legacy || 'none') : value).toLowerCase();
+    return ['fade', 'slide-up', 'slide-down', 'slide-left', 'slide-right', 'zoom', 'typewriter'].indexOf(value) >= 0 ? value : 'none';
+  }
+
+  function noteAnimationDurationMs(cfg) {
+    var unit = cfg && cfg.animationUnit === 's' ? 's' : 'ms';
+    var duration = Number(cfg && cfg.animationDuration);
+    if (unit === 's' && isFinite(duration) && duration > 60) duration = duration / 1000;
+    if (!isFinite(duration) || duration <= 0) duration = unit === 's' ? 0.4 : 400;
+    duration = unit === 's'
+      ? clampNum(duration, 0.05, 60, 0.4) * 1000
+      : clampNum(duration, 50, 60000, 400);
+    return Math.round(duration);
+  }
+
+  function cancelNoteLayerAnimation(target, visible) {
+    if (!target) return;
+    if (target.__kcsNoteAnimation && typeof target.__kcsNoteAnimation.cancel === 'function') {
+      try { target.__kcsNoteAnimation.cancel(); } catch (e) {}
+    }
+    target.__kcsNoteAnimation = null;
+    target.style.visibility = visible === false ? 'hidden' : 'visible';
+  }
+
+  function noteAnimationFrames(kind, entering, baseOpacity) {
+    var shown = { opacity: baseOpacity, transform: 'none', clipPath: 'inset(0 0 0 0)' };
+    var hidden = { opacity: 0, transform: 'none', clipPath: 'inset(0 0 0 0)' };
+    if (kind === 'slide-up') hidden.transform = 'translateY(' + (entering ? '6vh' : '-6vh') + ')';
+    else if (kind === 'slide-down') hidden.transform = 'translateY(' + (entering ? '-6vh' : '6vh') + ')';
+    else if (kind === 'slide-left') hidden.transform = 'translateX(' + (entering ? '6vw' : '-6vw') + ')';
+    else if (kind === 'slide-right') hidden.transform = 'translateX(' + (entering ? '-6vw' : '6vw') + ')';
+    else if (kind === 'zoom') hidden.transform = 'scale(.82)';
+    else if (kind === 'typewriter') {
+      hidden.opacity = baseOpacity;
+      hidden.clipPath = 'inset(0 100% 0 0)';
+    }
+    return entering ? [hidden, shown] : [shown, hidden];
+  }
+
+  function animateNoteLayer(target, kind, entering, durationMs) {
+    if (!target) return false;
+    cancelNoteLayerAnimation(target, true);
+    // Diese Bewegung wurde vom Nutzer fuer das Stream-Overlay ausdruecklich
+    // konfiguriert und darf deshalb nicht still durch eine Browser-Voreinstellung
+    // ersetzt werden.
+    if (kind === 'none') {
+      if (!entering) target.style.visibility = 'hidden';
+      return false;
+    }
+    if (typeof target.animate !== 'function') {
+      if (!entering) target.style.visibility = 'hidden';
+      return false;
+    }
+    var baseOpacity = Number(window.getComputedStyle(target).opacity);
+    if (!isFinite(baseOpacity)) baseOpacity = 1;
+    var animation = target.animate(noteAnimationFrames(kind, entering, baseOpacity), {
+      duration: durationMs,
+      easing: entering ? 'cubic-bezier(.2,.75,.25,1)' : 'cubic-bezier(.55,0,.8,.45)',
+      fill: 'both'
+    });
+    target.__kcsNoteAnimation = animation;
+    if (entering) animation.onfinish = function () {
+      if (target.__kcsNoteAnimation !== animation) return;
+      try { animation.cancel(); } catch (e) {}
+      target.__kcsNoteAnimation = null;
+      target.style.visibility = 'visible';
+    };
+    return true;
+  }
+
+  function noteSegmentSettings(el) {
+    if (!el) return null;
+    try { return JSON.parse(el.getAttribute('data-cheat-segment-settings') || '{}'); }
+    catch (e) { return null; }
+  }
+
+  function noteSegmentStyleValue(value) {
+    value = String(value || 'normal');
+    return /^(normal|bold|italic|bolditalic)$/.test(value) ? value : 'normal';
+  }
+
+  function applyStoredTextSegments(root, contentScale) {
+    if (!root || !root.querySelectorAll) return;
+    var segments = root.querySelectorAll('[data-cheat-segment-settings]');
+    for (var i = 0; i < segments.length; i++) {
+      var el = segments[i], settings = noteSegmentSettings(el);
+      if (!settings) continue;
+      var style = noteSegmentStyleValue(settings.textStyle);
+      var textColor = settings.textColor || '#e8f0ff';
+      el.classList.add('cheat-text-segment');
+      el.style.display = 'inline';
+      el.style.fontSize = (clampNum(settings.fontSize, 10, 160, 20) * contentScale) + 'px';
+      el.style.fontFamily = settings.font || 'Segoe UI, sans-serif';
+      el.style.fontWeight = (style === 'bold' || style === 'bolditalic') ? '800' : '600';
+      el.style.fontStyle = (style === 'italic' || style === 'bolditalic') ? 'italic' : 'normal';
+      var transform = String(settings.textTransform || 'none');
+      el.style.textTransform = transform === 'upper' ? 'uppercase'
+        : (transform === 'lower' ? 'lowercase' : (transform === 'caps' ? 'capitalize' : 'none'));
+      el.style.webkitFontSmoothing = settings.antialias === false ? 'none' : 'antialiased';
+      el.style.textRendering = settings.antialias === false ? 'optimizeSpeed' : 'optimizeLegibility';
+      el.style.writingMode = settings.verticalText === true ? 'vertical-rl' : '';
+      el.style.textOrientation = settings.verticalText === true ? 'upright' : '';
+      el.style.opacity = String(clampNum(settings.textOpacity, 0, 100, 100) / 100);
+      var outline = settings.outlineEnabled === true ? clampNum(settings.outlineSize, 0, 20, 2) * contentScale : 0;
+      el.style.webkitTextStroke = outline > 0 ? outline + 'px ' + (settings.outlineColor || '#000000') : '0 transparent';
+      el.style.paintOrder = outline > 0 ? 'stroke fill' : 'normal';
+      if (settings.gradientEnabled === true) {
+        el.style.backgroundImage = 'linear-gradient(' + clampNum(settings.gradientAngle, 0, 360, 90) + 'deg, ' + textColor + ', ' + colorWithOpacity(settings.gradientColor || '#8ab4f8', settings.gradientOpacity) + ')';
+        el.style.webkitBackgroundClip = 'text';
+        el.style.backgroundClip = 'text';
+        el.style.color = 'transparent';
+        el.style.webkitTextFillColor = 'transparent';
+      } else {
+        el.style.backgroundImage = '';
+        el.style.webkitBackgroundClip = '';
+        el.style.backgroundClip = '';
+        el.style.color = textColor;
+        el.style.webkitTextFillColor = textColor;
+      }
+    }
+  }
+
+  function animateStoredTextSegments(root, entering) {
+    if (!root || !root.querySelectorAll) return 0;
+    var segments = root.querySelectorAll('[data-cheat-segment-settings]');
+    var longest = 0;
+    for (var i = 0; i < segments.length; i++) {
+      var settings = noteSegmentSettings(segments[i]); if (!settings) continue;
+      var kind = noteAnimationKind(entering ? settings.textEnterAnimation : settings.textExitAnimation);
+      var unit = String(settings.animationUnit || 'ms').toLowerCase() === 's' ? 's' : 'ms';
+      var rawDuration = clampNum(settings.animationDuration, unit === 's' ? 0.1 : 50, unit === 's' ? 10 : 10000, unit === 's' ? 0.6 : 600);
+      var durationMs = unit === 's' ? rawDuration * 1000 : rawDuration;
+      if (kind !== 'none' && animateNoteLayer(segments[i], kind, entering, durationMs)) longest = Math.max(longest, durationMs);
+    }
+    return longest;
+  }
+
+  function cancelStoredTextSegmentAnimations(root, visible) {
+    if (!root || !root.querySelectorAll) return;
+    var segments = root.querySelectorAll('[data-cheat-segment-settings]');
+    for (var i = 0; i < segments.length; i++) cancelNoteLayerAnimation(segments[i], visible);
+  }
+
+  function finishNoteHide(el, id) {
+    if (noteHideTimers[id]) window.clearTimeout(noteHideTimers[id]);
+    delete noteHideTimers[id];
+    cancelNoteLayerAnimation(el.querySelector('.kcs-text'), false);
+    cancelStoredTextSegmentAnimations(el.querySelector('.kcs-text'), false);
+    cancelNoteLayerAnimation(el.querySelector('.kcs-bg'), false);
+    if (el.dataset.noteVisible !== '1') el.style.display = 'none';
+    el.dataset.noteExiting = '0';
+  }
+
+  function beginNoteExit(el, cfg, hasText, hasImage) {
+    var id = String(cfg && cfg.id || el.id || 'note');
+    if (el.dataset.noteExiting === '1') return;
+    el.dataset.noteVisible = '0';
+    el.dataset.noteExiting = '1';
+    delete el.dataset.noteTextEnterStamp;
+    delete el.dataset.noteImageEnterStamp;
+    var durationMs = noteAnimationDurationMs(cfg || {});
+    var textKind = noteAnimationKind(cfg && cfg.textExitAnimation);
+    var imageKind = noteAnimationKind(cfg && cfg.imageExitAnimation);
+    var textRuns = hasText && animateNoteLayer(el.querySelector('.kcs-text'), textKind, false, durationMs);
+    var segmentDuration = hasText ? animateStoredTextSegments(el.querySelector('.kcs-text'), false) : 0;
+    var imageRuns = hasImage && animateNoteLayer(el.querySelector('.kcs-bg'), imageKind, false, durationMs);
+    if (!textRuns && !imageRuns && !segmentDuration) {
+      finishNoteHide(el, id);
+      return;
+    }
+    noteHideTimers[id] = window.setTimeout(function () { finishNoteHide(el, id); }, Math.max(durationMs, segmentDuration) + 34);
   }
 
   function renderItem(el, cfg) {
     // Zeigen, wenn der manuelle Schalter AN ist ODER per Streamer.bot-Trigger eingeblendet.
-    var show = cfg && (cfg.enabled || trigVis[cfg.id]) && String(cfg.text || '').trim().length > 0;
-    if (!show) { el.style.display = 'none'; return; }
+    var hasText = !!(cfg && String(cfg.text || '').trim().length > 0);
+    var hasImage = !!(cfg && cfg.backgroundEnabled && String(cfg.bgImage || '').trim());
+    var show = cfg && (cfg.enabled || trigVis[cfg.id]) && (hasText || hasImage);
+    if (!show) {
+      if (el.dataset.noteVisible === '1') beginNoteExit(el, cfg || {}, hasText, hasImage);
+      else if (el.dataset.noteExiting !== '1') finishNoteHide(el, String(cfg && cfg.id || el.id || 'note'));
+      return;
+    }
+    var noteId = String(cfg.id || el.id || 'note');
+    var wasExiting = el.dataset.noteExiting === '1';
+    if (noteHideTimers[noteId]) window.clearTimeout(noteHideTimers[noteId]);
+    delete noteHideTimers[noteId];
+    var noteIsEntering = el.dataset.noteVisible !== '1';
+    // Nur beim echten Wiedereinblenden bzw. beim Abbruch einer Ausblendung
+    // laufende Animationen zuruecksetzen. Normale Bridge-Aktualisierungen duerfen
+    // eine gerade sichtbare Animation nicht mitten im Lauf abschneiden.
+    if (noteIsEntering || wasExiting) {
+      cancelNoteLayerAnimation(el.querySelector('.kcs-text'), true);
+      cancelStoredTextSegmentAnimations(el.querySelector('.kcs-text'), true);
+      cancelNoteLayerAnimation(el.querySelector('.kcs-bg'), true);
+    }
+    el.dataset.noteVisible = '1';
+    el.dataset.noteExiting = '0';
 
     // Position/Breite/Hoehe in PROZENT des Monitors (frei positionierbar, pro Text).
     var x = clampNum(cfg.x, 0, 100, 66);
@@ -197,7 +412,10 @@
     if (height > 0 && height < 4) height = 4;
     x = Math.min(x, Math.max(0, 100 - width));
     if (height > 0) y = Math.min(y, Math.max(0, 100 - height));
-    var fontSize = clampNum(cfg.fontSize, 8, 96, 20) * contentScale;
+    // Das Bedienfeld erlaubt bis 160 px. Die Ausgabe muss exakt dieselbe Grenze
+    // verwenden; die alte 96-px-Kappe ließ den echten Text kleiner als die
+    // Vorschau erscheinen und erzeugte dadurch scheinbar leeren Platz.
+    var fontSize = clampNum(cfg.fontSize, 10, 160, 20) * contentScale;
     var bgOpacity = clampNum(cfg.bgOpacity, 0, 100, 85) / 100;
     var textOpacity = clampNum(cfg.textOpacity, 0, 100, 100) / 100;
     var frameColor = cfg.frameColor || '#101826';
@@ -205,8 +423,24 @@
     var backgroundEnabled = (typeof cfg.backgroundEnabled === 'boolean') ? cfg.backgroundEnabled : (cfg.mode === 'image');
     var textColor = cfg.textColor || '#e8f0ff';
     var font = cfg.font || 'Segoe UI, sans-serif';
+    // Ausrichtung des Textes INNERHALB der Notiz - neun Stellungen.
+    // Senkrecht ueber das Flex-Raster, waagerecht ueber text-align.
+    var alignX = ['center', 'end'].indexOf(cfg.textAlignX) >= 0 ? cfg.textAlignX : 'start';
+    var alignY = ['center', 'end'].indexOf(cfg.textAlignY) >= 0 ? cfg.textAlignY : 'start';
+    var flexY = alignY === 'center' ? 'center' : (alignY === 'end' ? 'flex-end' : 'flex-start');
+    var textX = alignX === 'center' ? 'center' : (alignX === 'end' ? 'right' : 'left');
+    // Optional kann der Text unabhaengig vom Notiz-Hintergrund innerhalb der
+    // Flaeche platziert werden. X/Y sind Prozent der Notiz und bezeichnen die
+    // linke obere Ecke des Textbereichs. Breite/Hoehe sind ebenfalls Prozent
+    // der Notiz; alte Daten ohne diese Werte behalten ihre bisherige Restflaeche.
+    var textFree = cfg.textFreePosition === true;
+    var textPositionX = clampNum(cfg.textPositionX, 0, 95, 0);
+    var textPositionY = clampNum(cfg.textPositionY, 0, 95, 0);
+    var textPositionWidth = clampNum(cfg.textPositionWidth, 5, 100 - textPositionX, 100 - textPositionX);
+    var textPositionHeight = clampNum(cfg.textPositionHeight, 5, 100 - textPositionY, 100 - textPositionY);
 
-    el.style.cssText = 'position:absolute; box-sizing:border-box; pointer-events:none; display:block;'
+    el.style.cssText = 'position:absolute; box-sizing:border-box; pointer-events:none;'
+      + ' display:' + (textFree ? 'block' : 'flex') + '; align-items:' + (textFree ? 'initial' : flexY) + ';'
       + ' left:' + x + 'vw; top:' + y + 'vh; width:' + width + 'vw;'
       + (height > 0 ? ' height:' + height + 'vh;' : '')
       + ' max-width:calc(100vw - 6px); max-height:calc(100vh - 6px); overflow:hidden;'
@@ -216,17 +450,43 @@
 
     var bg = el.querySelector('.kcs-bg');
     if (backgroundEnabled && String(cfg.bgImage || '').trim()) {
+      var imagePositionX = clampNum(cfg.imagePositionX, 0, 95, 0);
+      var imagePositionY = clampNum(cfg.imagePositionY, 0, 95, 0);
+      var imagePositionWidth = clampNum(cfg.imagePositionWidth, 5, 100 - imagePositionX, 100 - imagePositionX);
+      var imagePositionHeight = clampNum(cfg.imagePositionHeight, 5, 100 - imagePositionY, 100 - imagePositionY);
+      var imageFit = ['contain', 'stretch'].indexOf(String(cfg.imageFit || '').toLowerCase()) >= 0
+        ? String(cfg.imageFit).toLowerCase()
+        : 'cover';
       // Gespeicherte volle Bridge-URL auf die eigene Herkunft umbiegen (Tab-/PC-uebergreifend).
       var _bi = String(cfg.bgImage).replace(/\/content\/backgrounds\//i, '/content/notes/backgrounds/'); var _ci = _bi.indexOf('/content/');
       var _url = (_ci > 0 && /^https?:\/\//.test(_bi)) ? (location.origin + _bi.slice(_ci)) : _bi;
+      bg.style.inset = 'auto';
+      bg.style.left = imagePositionX + '%';
+      bg.style.top = imagePositionY + '%';
+      bg.style.width = imagePositionWidth + '%';
+      bg.style.height = imagePositionHeight + '%';
       bg.style.backgroundImage = 'url("' + _url.replace(/"/g, '%22') + '")';
       bg.style.backgroundColor = 'transparent';
+      bg.style.backgroundSize = imageFit === 'stretch' ? '100% 100%' : imageFit;
+      bg.style.backgroundPosition = 'center';
+      bg.style.backgroundRepeat = 'no-repeat';
+      bg.style.borderRadius = (imagePositionX === 0 && imagePositionY === 0 && imagePositionWidth === 100 && imagePositionHeight === 100)
+        ? 'inherit'
+        : (4 * contentScale) + 'px';
     } else {
+      bg.style.inset = '0';
+      bg.style.left = '';
+      bg.style.top = '';
+      bg.style.width = '';
+      bg.style.height = '';
       bg.style.backgroundImage = 'none';
       bg.style.backgroundColor = frameEnabled ? frameColor : 'transparent';
+      bg.style.backgroundSize = 'cover';
+      bg.style.borderRadius = 'inherit';
     }
     bg.style.opacity = String(bgOpacity);
 
+    var textFrame = el.querySelector('.kcs-text-frame');
     var txt = el.querySelector('.kcs-text');
     // Formatierter Text (Fett/Kursiv/Unterstrichen kommen als <b>/<i>/<u> aus dem Bedienfeld).
     // Quelle ist der eigene, lokale Speckzettel-Text -> innerHTML ist hier vertretbar.
@@ -234,6 +494,13 @@
     // Tabellen, Listen, **fett** usw.) - identisch zur Vorschau im Bedienfeld.
     var rawText = resolveEventVariables(resolveVariables(cfg.text || ''), cfg.id);
     txt.innerHTML = (typeof window.kappiMarkdown === 'function') ? window.kappiMarkdown(rawText) : rawText;
+    applyStoredTextSegments(txt, contentScale);
+    // Ein Text ohne bewusst gesetzten Zeilenumbruch bleibt beim automatischen
+    // Einpassen einzeilig. So wird er weiter verkleinert, statt ab einer
+    // bestimmten Laenge unerwartet in eine zweite Zeile zu springen.
+    var singleLineFit = cfg.fitText === true
+      && !/[\r\n]/.test(String(rawText || ''))
+      && !/<br\s*\/?\s*>/i.test(String(rawText || ''));
     var imageEmojis = txt.querySelectorAll('img.kappi-note-image-emoji');
     for (var ie = 0; ie < imageEmojis.length; ie++) {
       var imageEmojiSize = clampNum(imageEmojis[ie].getAttribute('data-kappi-note-emoji-size'), 16, 256, 48);
@@ -256,9 +523,138 @@
     txt.style.fontFamily = font;
     txt.style.fontSize = fontSize + 'px';
     txt.style.lineHeight = '1.35';
-    txt.style.minHeight = height > 0 ? '100%' : '';
-    txt.style.fontWeight = '600';
+    // Exakt dieselbe Struktur wie in der Bedienfeld-Vorschau: Der unsichtbare
+    // Frame traegt Position, Groesse und vertikale Ausrichtung; der Text selbst
+    // bleibt darin relativ. So stimmen freie Textposition und Zentrierung in
+    // Vorschau, Gaming-PC-Ausgabe und OBS pixelgleich ueberein.
+    if (textFrame) {
+      textFrame.style.cssText = textFree
+        ? ('position:absolute; z-index:1; display:flex; box-sizing:border-box; overflow:hidden;'
+          + ' left:' + textPositionX + '%; top:' + textPositionY + '%;'
+          + ' width:' + textPositionWidth + '%; height:' + textPositionHeight + '%;'
+          + ' align-items:' + flexY + ';')
+        : 'display:contents;';
+    }
+    txt.style.position = 'relative';
+    txt.style.left = '';
+    txt.style.top = '';
+    txt.style.width = '100%';
+    txt.style.height = 'auto';
+    txt.style.maxHeight = textFree ? '100%' : '';
+    txt.style.overflow = textFree ? 'hidden' : '';
+    txt.style.boxSizing = 'border-box';
+    txt.style.whiteSpace = singleLineFit ? 'nowrap' : 'pre-wrap';
+    txt.style.wordBreak = singleLineFit ? 'normal' : 'break-word';
+    txt.style.overflowWrap = singleLineFit ? 'normal' : 'break-word';
+    txt.style.textAlign = textX;
+    // Volle Hoehe nur bei Ausrichtung oben. Sonst wuerde der Textblock die
+    // ganze Notiz fuellen und senkrechtes Zentrieren haette keine Wirkung.
+    txt.style.minHeight = (!textFree && height > 0 && alignY === 'start') ? '100%' : '';
+    // ===== Design: Schrift & Text =====
+    var style = String(cfg.textStyle || 'normal');
+    txt.style.fontWeight = (style === 'bold' || style === 'bolditalic') ? '800' : '600';
+    txt.style.fontStyle = (style === 'italic' || style === 'bolditalic') ? 'italic' : 'normal';
+    var transform = String(cfg.textTransform || 'none');
+    txt.style.textTransform = transform === 'upper' ? 'uppercase'
+      : (transform === 'lower' ? 'lowercase' : (transform === 'caps' ? 'capitalize' : 'none'));
+    // Kantenglaettung aus: harte Pixelkanten, z. B. fuer Pixelschriften.
+    txt.style.webkitFontSmoothing = (cfg.antialias === false) ? 'none' : 'antialiased';
+    txt.style.textRendering = (cfg.antialias === false) ? 'optimizeSpeed' : 'optimizeLegibility';
+    txt.style.writingMode = (cfg.verticalText === true) ? 'vertical-rl' : '';
+    txt.style.textOrientation = (cfg.verticalText === true) ? 'upright' : '';
+
+    // ===== Design: Effekte =====
+    // Kontur und Fuellung muessen getrennte Ebenen bleiben. Die frueheren vier
+    // farbigen Textschatten lagen bei einer transparenten Verlaufsfuellung auch
+    // innerhalb der Buchstaben und faerbten dadurch den kompletten Text in der
+    // Konturfarbe. Ein echter Stroke bleibt hinter der Fuellung; der neutrale
+    // Schlagschatten beeinflusst den Farbverlauf nicht.
     txt.style.textShadow = '0 ' + (1 * contentScale) + 'px ' + (2 * contentScale) + 'px rgba(0,0,0,.55)';
+    var oSize = cfg.outlineEnabled === true ? clampNum(cfg.outlineSize, 0, 20, 2) * contentScale : 0;
+    var oColor = cfg.outlineColor || '#000000';
+    if (oSize > 0) {
+      txt.style.webkitTextStroke = oSize + 'px ' + oColor;
+      txt.style.paintOrder = 'stroke fill';
+    } else {
+      txt.style.webkitTextStroke = '0 transparent';
+      txt.style.paintOrder = 'normal';
+    }
+    // Farbverlauf auf dem Text: Verlauf als Hintergrund, Text als Maske.
+    if (cfg.gradientEnabled === true) {
+      var gAngle = clampNum(cfg.gradientAngle, 0, 360, 90);
+      var gColor = cfg.gradientColor || '#8ab4f8';
+      txt.style.backgroundImage = 'linear-gradient(' + gAngle + 'deg, ' + textColor + ', ' + colorWithOpacity(gColor, cfg.gradientOpacity) + ')';
+      txt.style.webkitBackgroundClip = 'text';
+      txt.style.backgroundClip = 'text';
+      txt.style.color = 'transparent';
+      txt.style.webkitTextFillColor = 'transparent';
+    } else {
+      txt.style.backgroundImage = '';
+      txt.style.webkitBackgroundClip = '';
+      txt.style.backgroundClip = '';
+      txt.style.webkitTextFillColor = '';
+      txt.style.color = textColor;
+    }
+
+    // Einpassen NACH allen Schrifteinstellungen - sonst wird an der falschen
+    // Groesse gemessen.
+    if (cfg.fitText === true) fitTextIntoBox(textFree && textFrame ? textFrame : el, txt, fontSize);
+
+    // ===== Design: Animation =====
+    applyNoteEnterAnimations(el, cfg, noteIsEntering);
+  }
+
+  // Getrennte Einblendanimationen fuer Text und Bild. Das alte Feld „animation"
+  // bleibt der Fallback fuer bereits gespeicherte Notizen.
+  function applyNoteEnterAnimations(el, cfg, forceRestart) {
+    var durationMs = noteAnimationDurationMs(cfg);
+    var textKind = noteAnimationKind(cfg.textEnterAnimation, cfg.animation);
+    var imageKind = noteAnimationKind(cfg.imageEnterAnimation, cfg.animation);
+    var hasImage = cfg.backgroundEnabled === true && String(cfg.bgImage || '').trim().length > 0;
+    var textStamp = textKind + '|' + durationMs + '|' + String(cfg.text || '').length;
+    var imageStamp = imageKind + '|' + durationMs + '|' + String(cfg.bgImage || '');
+    if (forceRestart || el.dataset.noteTextEnterStamp !== textStamp) {
+      el.dataset.noteTextEnterStamp = textStamp;
+      animateNoteLayer(el.querySelector('.kcs-text'), textKind, true, durationMs);
+      animateStoredTextSegments(el.querySelector('.kcs-text'), true);
+    }
+    if (hasImage && (forceRestart || el.dataset.noteImageEnterStamp !== imageStamp)) {
+      el.dataset.noteImageEnterStamp = imageStamp;
+      animateNoteLayer(el.querySelector('.kcs-bg'), imageKind, true, durationMs);
+    } else if (!hasImage) {
+      delete el.dataset.noteImageEnterStamp;
+      cancelNoteLayerAnimation(el.querySelector('.kcs-bg'), true);
+    }
+  }
+
+  // Schrift so weit verkleinern, bis der Text in die Notiz passt. Gedacht fuer
+  // Anzeigen mit wechselndem Inhalt - ein kurzer Name passt, ein sehr langer
+  // wuerde sonst unten abgeschnitten. Bis 6 px verkleinern: eine prozentuale
+  // Untergrenze stoppte bei grossen Ausgangsschriften zu frueh und erzwang trotz
+  // „Einpassen“ einen ungewollten Zeilenumbruch.
+  function fitTextIntoBox(box, txt, basePx) {
+    var min = 6;
+    var size = basePx;
+    txt.style.fontSize = size + 'px';
+    function textFits() {
+      // Der Rahmen selbst hat overflow:hidden. Dadurch kann sein scrollHeight
+      // trotz abgeschnittenem Kind genauso gross wie clientHeight bleiben.
+      // Deshalb immer den wirklichen Text-Ueberlauf gegen die nutzbare
+      // Innenflaeche des Rahmens pruefen.
+      var cs = window.getComputedStyle(box);
+      var innerW = Math.max(1, box.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0));
+      var innerH = Math.max(1, box.clientHeight - (parseFloat(cs.paddingTop) || 0) - (parseFloat(cs.paddingBottom) || 0));
+      var availableW = Math.max(1, Math.min(txt.clientWidth || innerW, innerW));
+      var availableH = Math.max(1, Math.min(txt.clientHeight || innerH, innerH));
+      return txt.scrollWidth <= availableW + 1 && txt.scrollHeight <= availableH + 1;
+    }
+    for (var step = 0; step < 48; step++) {
+      if (textFits()) break;
+      if (size <= min) break;
+      size = size * 0.92;
+      if (size < min) size = min;
+      txt.style.fontSize = size + 'px';
+    }
   }
 
   function renderAll(items) {
@@ -290,6 +686,8 @@
     for (var j = existing.length - 1; j >= 0; j--) {
       var id = existing[j].id.replace('kcs-item-', '');
       if (!seen[id]) {
+        if (noteHideTimers[id]) window.clearTimeout(noteHideTimers[id]);
+        delete noteHideTimers[id];
         layer.removeChild(existing[j]);
         delete trigVis[id];
         delete trigKeys[id];
@@ -311,19 +709,23 @@
   }
 
   function poll() {
+    if (pollBusy) return;
+    pollBusy = true;
     try {
       var x = new XMLHttpRequest();
       x.open('GET', URL_ + '?t=' + Date.now(), true);
       x.timeout = 2500;
       x.onload = function () {
+        pollBusy = false;
         if (x.status < 200 || x.status >= 300) return;
         var key = x.responseText || '';
         if (key === lastKey) return; // nichts geaendert -> nicht neu zeichnen
         lastKey = key;
         try { lastItems = normalizeResponse(JSON.parse(key)); renderAll(lastItems); } catch (e) {}
       };
+      x.onerror = x.ontimeout = x.onabort = function () { pollBusy = false; };
       x.send();
-    } catch (e) {}
+    } catch (e) { pollBusy = false; }
   }
 
   // --- Streamer.bot Custom-Event -> Text ein-/ausblenden (pro Text-ID) ---

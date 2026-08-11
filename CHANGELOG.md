@@ -1,5 +1,23 @@
 # FreakShow – Änderungen
 
+## 1.5.0
+
+### Neu
+
+- Game Events erkennen jetzt Bildschirmbereiche per Referenzbild mit Live-Vorschau, Trefferquote, Stabilitätszeit und optionalem Ereignis beim Verschwinden
+- neue Prozess-Events reagieren auf Start und Ende einer EXE und können Twitch-/YouTube-Kategorien sowie Streamer.bot-Aktionen anstoßen
+- ACT-Events unterstützen unter anderem Kampfstart, Kampfende, Kills, Tode, höchsten DPS und frei wählbare DPS-Grenzen; Overwolf-Ereignisse können ebenfalls an Streamer.bot und verknüpfte Videos weitergegeben werden
+- Notizen bieten getrennte Text- und Bildpositionen, markierbare Textbereiche mit eigener Formatierung sowie eigene Ein- und Ausblendanimationen
+- FreakShow fordert beim Start Administratorrechte an, damit auch Spiele mit erhöhten Rechten zuverlässig gesteuert werden können
+
+### Verbessert und korrigiert
+
+- Spiel beenden schließt jetzt den vollständigen Prozessbaum und erkennt auch Unreal-Shipping-Unterprozesse wie bei Marvel Rivals
+- Notizen-Vorschau und echte Ausgabe verwenden dieselben Positionen, Größen, Konturen, Farbverläufe, Skalierungen und Animationszustände
+- Notizen-, Video- und Gruppeneditoren sind einheitlicher aufgebaut; Reiter, Kontextmenüs, Schalter und Scrollleisten schneiden Inhalte nicht mehr ab
+- Game-Event-Anzeigen verwenden kompakte Zustandsfarben und führen nur aus, wenn die benötigte EXE beziehungsweise Verbindung tatsächlich verfügbar ist
+- zahlreiche Layoutfehler bei kleinen Fenstern, Browser-Zoom, freien Positionen und markierten Textbereichen behoben
+
 ## 1.4.2
 
 ### Korrigiert
