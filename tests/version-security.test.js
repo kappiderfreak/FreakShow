@@ -9,14 +9,16 @@ const read = relative => fs.readFileSync(path.join(root, relative), 'utf8');
 const html = read(path.join('app', 'websocket-diagnose.html'));
 const bridge = read('EmbeddedBridge.ps1');
 const updateManifest = JSON.parse(read('update-manifest.json'));
+const version = read('VERSION.txt').trim();
+const escapedVersion = version.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-assert.equal(read('VERSION.txt').trim(), '1.5.0');
-assert.match(read('VersionInfo.cs'), /AssemblyFileVersion\("1\.5\.0\.0"\)/);
-assert.match(read('VersionInfo.cs'), /Current = "1\.5\.0"/);
-assert.match(read('UpdaterVersionInfo.cs'), /AssemblyInformationalVersion\("1\.5\.0"\)/);
-assert.match(read('README-FIRST.txt'), /^FreakShow 1\.5\.0/m);
-assert.equal(updateManifest.version, '1.5.0');
-assert.match(updateManifest.packageUrl, /\/v1\.5\.0\/FreakShow-update-1\.5\.0\.zip$/);
+assert.match(version, /^\d+\.\d+\.\d+$/);
+assert.match(read('VersionInfo.cs'), new RegExp(`AssemblyFileVersion\\("${escapedVersion}\\.0"\\)`));
+assert.match(read('VersionInfo.cs'), new RegExp(`Current = "${escapedVersion}"`));
+assert.match(read('UpdaterVersionInfo.cs'), new RegExp(`AssemblyInformationalVersion\\("${escapedVersion}"\\)`));
+assert.match(read('README-FIRST.txt'), new RegExp(`^FreakShow ${escapedVersion}`, 'm'));
+assert.equal(updateManifest.version, version);
+assert.match(updateManifest.packageUrl, new RegExp(`/v${escapedVersion}/FreakShow-update-${escapedVersion}\\.zip$`));
 
 assert.match(
   html,

@@ -1,5 +1,14 @@
 # FreakShow – Änderungen
 
+## 1.5.1
+
+### Hotfix
+
+- Game Event besitzt jetzt unten links einen zentralen Streamer.bot-Import mit verständlicher Erklärung für automatische Twitch-/YouTube-Kategorien und den manuellen Wechsel zu Just Chatting per Tastenkürzel oder Stream Deck
+- der Import richtet die Aktionen **FreakShow - Process Event** und **FreakShow - Just Chatting** gemeinsam ein; einzelne Game Events benötigen keinen eigenen kopierten C#-Code
+- ungültige oder versehentlich aus Dateipfaden übernommene Streamer.bot-Hosts werden verworfen, statt die gespeicherte Verbindung zu überschreiben
+- Host und Port werden als gemeinsames Verbindungspaar geprüft und nach Navigation beziehungsweise Seitenwiederherstellung zuverlässig neu eingelesen
+
 ## 1.5.0
 
 ### Neu

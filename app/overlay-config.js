@@ -27,6 +27,26 @@
     return isNaN(parsed) ? fallback : parsed;
   }
 
+  // Verbindungswerte werden von mehreren Modulen gemeinsam benutzt. Deshalb
+  // darf ein Dateipfad (z. B. "recognition/bild.png") niemals als Host enden.
+  function isValidHost(value) {
+    var host = String(value == null ? '' : value).trim();
+    if (!host || host.length > 253) return false;
+    if (/\s|[\\/]/.test(host) || host.indexOf('://') >= 0) return false;
+    return /^[A-Za-z0-9._:\-\[\]%]+$/.test(host);
+  }
+
+  function isValidPort(value) {
+    var text = String(value == null ? '' : value).trim();
+    if (!/^\d+$/.test(text)) return false;
+    var port = parseInt(text, 10);
+    return port >= 1 && port <= 65535;
+  }
+
+  function isValidConnection(host, port) {
+    return isValidHost(host) && isValidPort(port);
+  }
+
   function parseQuery() {
     var out = {};
     var query = window.location && window.location.search ? window.location.search.replace(/^\?/, '') : '';
@@ -72,8 +92,8 @@
     var cfg = input || {};
     var emoteRain = cfg.emoteRain || {};
     return {
-      host: cfg.host || DEFAULTS.host,
-      port: toInt(cfg.port, DEFAULTS.port),
+      host: isValidHost(cfg.host) ? String(cfg.host).trim() : DEFAULTS.host,
+      port: isValidPort(cfg.port) ? parseInt(cfg.port, 10) : DEFAULTS.port,
       monitorPreset: cfg.monitorPreset || DEFAULTS.monitorPreset,
       monitorWidth: toInt(cfg.monitorWidth, DEFAULTS.monitorWidth),
       monitorHeight: toInt(cfg.monitorHeight, DEFAULTS.monitorHeight),
@@ -152,17 +172,20 @@
   // ist der EINE gemeinsame Ort, den beide Umgebungen lesen. Best effort - ein
   // Fehler hier darf das lokale Speichern nie blockieren.
   function postSharedConfig(host, port) {
+    if (!isValidConnection(host, port)) return false;
     try {
       var xhr = new XMLHttpRequest();
       xhr.open('POST', '/websocket-config', true);
       xhr.timeout = 2000;
       xhr.setRequestHeader('Content-Type', 'application/json');
       xhr.send(JSON.stringify({ host: host, port: port }));
+      return true;
     } catch (err) {}
+    return false;
   }
 
   function applyShared(input) {
-    if (!input || !input.host || !input.port) return null;
+    if (!input || !isValidConnection(input.host, input.port)) return null;
     sharedConnection = {
       host: String(input.host),
       port: toInt(input.port, DEFAULTS.port)
@@ -220,6 +243,7 @@
   }
 
   function save(host, port, monitor) {
+    var current = get();
     var input = typeof host === 'object'
       ? host
       : {
@@ -231,12 +255,24 @@
           overlaysEnabled: monitor && monitor.overlaysEnabled,
           emoteRain: monitor && monitor.emoteRain
         };
-    var cfg = normalize(input);
+    input = input || {};
+    // Host und Port bilden ein Paar. Bei ungueltiger automatischer
+    // Formularwiederherstellung bleiben beide bisherigen Werte erhalten.
+    var connectionValid = isValidConnection(input.host, input.port);
+    var cfg = normalize({
+      host: connectionValid ? input.host : current.host,
+      port: connectionValid ? input.port : current.port,
+      monitorPreset: input.monitorPreset || current.monitorPreset,
+      monitorWidth: input.monitorWidth != null ? input.monitorWidth : current.monitorWidth,
+      monitorHeight: input.monitorHeight != null ? input.monitorHeight : current.monitorHeight,
+      overlaysEnabled: typeof input.overlaysEnabled === 'boolean' ? input.overlaysEnabled : current.overlaysEnabled,
+      emoteRain: input.emoteRain || current.emoteRain
+    });
     sharedConnection = { host: cfg.host, port: cfg.port };
     if (window.localStorage) {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg));
     }
-    postSharedConfig(cfg.host, cfg.port);
+    if (connectionValid) postSharedConfig(cfg.host, cfg.port);
     window.KAPPI_OVERLAY_CONFIG = cfg;
     return cfg;
   }
@@ -318,6 +354,9 @@
     clear: clear,
     getExternalLinks: getExternalLinks,
     saveExternalLinks: saveExternalLinks,
+    isValidHost: isValidHost,
+    isValidPort: isValidPort,
+    isValidConnection: isValidConnection,
     readIndex: readIndex
   };
 

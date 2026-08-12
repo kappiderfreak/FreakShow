@@ -57,6 +57,7 @@ $rootFiles = @(
   'LICENSE',
   'CHANGELOG.md',
   'FreakShow-Chat-Sender.sb',
+  'FreakShow-Process-Event.sb',
   'README-FIRST.txt',
   'README.txt',
   'VERSION.txt'
