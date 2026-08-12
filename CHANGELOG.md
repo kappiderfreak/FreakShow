@@ -1,5 +1,15 @@
 # FreakShow – Änderungen
 
+## 1.5.2
+
+### Hotfix
+
+- `Content\html-overlays` wird bei einer Neuinstallation und nach einem Update automatisch beim ersten Start erstellt
+- eine deutsch-englische Kurzanleitung und eine neutrale Streamer.bot-Linkvorlage werden direkt aus der EXE bereitgestellt, falls sie im Ordner noch fehlen
+- das vollständige Installationspaket enthält den sichtbaren Starter-Ordner bereits; persönliche und fremde Overlay-Unterordner bleiben weiterhin vom öffentlichen Paket ausgeschlossen
+- der normale Standardpfad `Content` funktioniert nun auch beim allerersten Start, selbst wenn der Ordner vorher noch nicht existiert
+- StreamUP Horizontal Chat wird in Vorschau und Ausgabe automatisch über den lokalen FreakShow-Relay verbunden
+
 ## 1.5.1
 
 ### Hotfix

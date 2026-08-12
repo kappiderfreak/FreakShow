@@ -3,12 +3,13 @@ param(
   [ValidatePattern('^\d+\.\d+\.\d+$')]
   [string]$Version,
   [string]$Repository = 'kappiderfreak/FreakShow',
-  [string]$OutputDirectory = (Join-Path $PSScriptRoot 'release-output'),
+  [string]$OutputDirectory,
   [switch]$WriteRepositoryManifest
 )
 
 $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath($PSScriptRoot).TrimEnd('\', '/')
+if ([string]::IsNullOrWhiteSpace($OutputDirectory)) { $OutputDirectory = Join-Path $root 'release-output' }
 $output = [IO.Path]::GetFullPath($OutputDirectory).TrimEnd('\', '/')
 if (-not $output.StartsWith($root + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
   throw 'OutputDirectory muss innerhalb des FreakShow-Projektordners liegen.'
@@ -89,6 +90,12 @@ $fullContent = Join-Path $fullStage 'Content'
 New-Item -ItemType Directory -Path $fullContent -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $root 'Content\OverlayIcon.png') -Destination (Join-Path $fullContent 'OverlayIcon.png') -Force
 Copy-Item -LiteralPath (Join-Path $root 'Content\README-MEDIA.txt') -Destination (Join-Path $fullContent 'README-MEDIA.txt') -Force
+$htmlOverlaySource = Join-Path $root 'Content\html-overlays'
+$htmlOverlayTarget = Join-Path $fullContent 'html-overlays'
+New-Item -ItemType Directory -Path $htmlOverlayTarget -Force | Out-Null
+Get-ChildItem -LiteralPath $htmlOverlaySource -File | ForEach-Object {
+  Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $htmlOverlayTarget $_.Name) -Force
+}
 $fullZipName = "FreakShow-$Version-windows-x64.zip"
 $fullZipPath = Join-Path $output $fullZipName
 Compress-Archive -LiteralPath $fullStage -DestinationPath $fullZipPath -CompressionLevel Optimal
@@ -105,7 +112,8 @@ $manifest = [ordered]@{
 }
 $manifestJson = $manifest | ConvertTo-Json
 $manifestPath = Join-Path $output 'update-manifest.json'
-$manifestJson | Set-Content -LiteralPath $manifestPath -Encoding UTF8
+$utf8NoBom = New-Object Text.UTF8Encoding($false)
+[IO.File]::WriteAllText($manifestPath, $manifestJson + [Environment]::NewLine, $utf8NoBom)
 @(
   "$fullSha256  $fullZipName"
   "$sha256  $zipName"
@@ -115,7 +123,7 @@ Remove-Item -LiteralPath $stage -Recurse -Force
 Remove-Item -LiteralPath $fullContainer -Recurse -Force
 
 if ($WriteRepositoryManifest) {
-  $manifestJson | Set-Content -LiteralPath (Join-Path $root 'update-manifest.json') -Encoding UTF8
+  [IO.File]::WriteAllText((Join-Path $root 'update-manifest.json'), $manifestJson + [Environment]::NewLine, $utf8NoBom)
 }
 
 Write-Host "Vollpaket:    $fullZipPath"

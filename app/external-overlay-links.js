@@ -360,6 +360,17 @@
       (parts.query ? '?' + parts.query : '') + parts.hash;
   }
 
+  // StreamUP Horizontal Chat liest die Streamer.bot-Verbindung aus den Parametern
+  // "url" und "port". Im FreakShow-iframe verbindet es sich zuverlaessig ueber
+  // den lokalen Relay, auch wenn Streamer.bot auf einem zweiten PC laeuft.
+  function isStreamUpHorizontalChat(url) {
+    try {
+      return /(?:^|\/)StreamUP-HorizontalChat\.html(?:[?#]|$)/i.test(decodeURIComponent(String(url || '')));
+    } catch (err) {
+      return /StreamUP-HorizontalChat\.html/i.test(String(url || ''));
+    }
+  }
+
   // Alle bereits in der URL vorhandenen Adress-/Port-Parameter auf den Proxy
   // umbiegen - noetig fuer Overlays mit eigenen Schluesseln (ChatRD:
   // streamerBotServerAddress / streamerBotServerPort). speakerBot* bleibt unberuehrt.
@@ -435,6 +446,10 @@
     var url = link.url;
     var profile = link.profile || 'auto';
     var provider = overlayProviderFor(url);
+
+    if (isStreamUpHorizontalChat(url)) {
+      return setQueryValues(url, { url: PROXY_HOST, port: PROXY_PORT });
+    }
 
     // "direct" (z. B. Twitch-Alertbox): Link UNVERAENDERT lassen. Herkunft,
     // Sitzung und Zugangs-Token im Hash muessen zusammenpassen; der Frame-Riegel
@@ -897,7 +912,7 @@
     // dazwischen war der dunkle Hintergrund kurz zu sehen.
     frame.name = link.transparentBg === true ? 'freakshow-overlay-nobg' : 'freakshow-overlay';
     frame.src = applyConnection(link);
-    frame.allow = 'autoplay; fullscreen; clipboard-read; clipboard-write; local-network-access';
+    frame.allow = 'autoplay; fullscreen; clipboard-read; clipboard-write; local-network-access; local-network; loopback-network';
     frame.setAttribute('allowtransparency', 'true');
     frame.style.position = 'absolute';
     frame.style.left = Math.round(visualX * scaleX) + 'px';
@@ -961,7 +976,7 @@
     }
     // Ohne "autoplay" darf die Seite von sich aus keinen Ton starten - zweite
     // Absicherung neben dem Stummschalten im Dokument selbst.
-    if (wantsMuted) frame.allow = 'fullscreen; clipboard-read; clipboard-write; local-network-access';
+    if (wantsMuted) frame.allow = 'fullscreen; clipboard-read; clipboard-write; local-network-access; local-network; loopback-network';
     frame.addEventListener('load', function () {
       postBackgroundWish();
       window.setTimeout(postBackgroundWish, 400);
