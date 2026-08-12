@@ -1457,6 +1457,8 @@ internal sealed class OverlaySatelliteForm : Form
 
 internal static class Program
 {
+    private const string HtmlOverlayReadmeResource = "FreakShow.HtmlOverlays.Readme";
+    private const string HtmlOverlayLinkTemplateResource = "FreakShow.HtmlOverlays.LinkTemplate";
     private static Mutex mutex;
     private static EmbeddedBridge bridge;
 
@@ -1488,6 +1490,16 @@ internal static class Program
         if (String.IsNullOrEmpty(contentRoot))
         {
             MessageBox.Show("Kein gültiger Content-Ordner gefunden.\nBitte FreakShow.config.json prüfen.", "FreakShow", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return;
+        }
+        try
+        {
+            EnsureHtmlOverlayFolder(contentRoot);
+        }
+        catch (Exception ex)
+        {
+            HostLog.Write("Content folder preparation failed: " + ex.Message);
+            MessageBox.Show("Der Content-Ordner konnte nicht vorbereitet werden.\n\n" + ex.Message, "FreakShow", MessageBoxButtons.OK, MessageBoxIcon.Error);
             return;
         }
 
@@ -1536,9 +1548,29 @@ internal static class Program
             }
         }
         catch (Exception ex) { HostLog.Write("Config read failed: " + ex.Message); }
-        string local = Path.Combine(baseDir, "Content");
-        if (Directory.Exists(local)) return Normalize(local, baseDir);
-        return null;
+        return Normalize(Path.Combine(baseDir, "Content"), baseDir);
+    }
+
+    private static void EnsureHtmlOverlayFolder(string contentRoot)
+    {
+        Directory.CreateDirectory(contentRoot);
+        string htmlOverlays = Path.Combine(contentRoot, "html-overlays");
+        Directory.CreateDirectory(htmlOverlays);
+        WriteEmbeddedResourceIfMissing(HtmlOverlayReadmeResource, Path.Combine(htmlOverlays, "README-FIRST.txt"));
+        WriteEmbeddedResourceIfMissing(HtmlOverlayLinkTemplateResource, Path.Combine(htmlOverlays, "overlay-link-template.txt"));
+    }
+
+    private static void WriteEmbeddedResourceIfMissing(string resourceName, string destination)
+    {
+        if (File.Exists(destination)) return;
+        using (Stream input = Assembly.GetExecutingAssembly().GetManifestResourceStream(resourceName))
+        {
+            if (input == null) throw new InvalidOperationException("Embedded resource missing: " + resourceName);
+            using (FileStream output = new FileStream(destination, FileMode.CreateNew, FileAccess.Write, FileShare.Read))
+            {
+                input.CopyTo(output);
+            }
+        }
     }
 
     private static string Normalize(string path, string baseDir)

@@ -17,6 +17,8 @@ $hostArgs = @(
   ('/resource:' + (Join-Path $root 'FreakShow-Chat-Sender.sb') + ',FreakShow.ChatSenderImport'),
   ('/resource:' + (Join-Path $root 'streamerbot-output-receiver.import.txt') + ',FreakShow.OutputReceiverImport'),
   ('/resource:' + (Join-Path $root 'FreakShow-Process-Event.sb') + ',FreakShow.ProcessEventImport'),
+  ('/resource:' + (Join-Path $root 'Content\html-overlays\README-FIRST.txt') + ',FreakShow.HtmlOverlays.Readme'),
+  ('/resource:' + (Join-Path $root 'Content\html-overlays\overlay-link-template.txt') + ',FreakShow.HtmlOverlays.LinkTemplate'),
   '/reference:System.dll', '/reference:System.Core.dll', '/reference:System.Drawing.dll', '/reference:System.Windows.Forms.dll',
   '/reference:System.Web.Extensions.dll',
   ('/reference:' + $psAssembly),

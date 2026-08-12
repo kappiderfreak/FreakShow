@@ -37,6 +37,10 @@ Content/*
 !Content/.gitkeep
 !Content/OverlayIcon.png
 !Content/README-MEDIA.txt
+!Content/html-overlays/
+Content/html-overlays/*/
+!Content/html-overlays/README-FIRST.txt
+!Content/html-overlays/overlay-link-template.txt
 
 # --- Maschinenspezifische Pfad-Config (App defaultet ohne sie auf <exe-Ordner>\Content) ---
 FreakShow.config.json

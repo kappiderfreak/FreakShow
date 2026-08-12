@@ -13974,6 +13974,12 @@
         var previewConfig = readConfigFields();
         var previewHost = String(parts.host || '').toLowerCase().replace(/^www\./, '');
         var previewPath = String(parts.path || '').toLowerCase();
+        if (/streamup-horizontalchat\.html$/i.test(previewPath)) {
+          return setQueryValues(url, {
+            url: String(location.hostname || '127.0.0.1'),
+            port: 18082
+          });
+        }
         if (previewHost === 'dashboard.twitch.tv' && previewPath.indexOf('/widgets/alertbox') === 0) {
           return location.origin + '/external-preview/twitch-alertbox' +
             (parts.query ? '?' + parts.query : '') + parts.hash;

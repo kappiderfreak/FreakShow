@@ -1,0 +1,17 @@
+FreakShow HTML overlay URL template
+===================================
+
+Without Streamer.bot parameters:
+http://127.0.0.1:18081/content/html-overlays/OVERLAY-FOLDER/START-FILE.html
+
+With common Streamer.bot parameters:
+http://127.0.0.1:18081/content/html-overlays/OVERLAY-FOLDER/START-FILE.html?url=HOST&address=HOST&port=PORT
+
+Example - Streamer.bot on 192.168.1.50:8080:
+http://127.0.0.1:18081/content/html-overlays/OVERLAY-FOLDER/START-FILE.html?url=192.168.1.50&address=192.168.1.50&port=8080
+
+Replace:
+- OVERLAY-FOLDER = the copied folder inside Content\html-overlays
+- START-FILE     = the overlay HTML file, for example index.html
+- HOST           = the Streamer.bot PC address
+- PORT           = the Streamer.bot WebSocket port
