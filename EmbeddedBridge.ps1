@@ -27,6 +27,7 @@ param(
   [string]$SettingsPagePath = (Join-Path $PSScriptRoot 'app\websocket-diagnose.html'),
   [string]$ChatImportCode = '',
   [string]$OutputImportCode = '',
+  [string]$ProcessEventImportCode = '',
   [switch]$EmbeddedHost
 )
 
@@ -73,14 +74,21 @@ function ConvertTo-StreamerBotImportCode {
 function Merge-StreamerBotImportCodes {
   param(
     [Parameter(Mandatory = $true)][string]$ChatCode,
-    [Parameter(Mandatory = $true)][string]$ReceiverCode
+    [Parameter(Mandatory = $true)][string]$ReceiverCode,
+    [string]$ProcessEventCode = ''
   )
 
   $chatImport = ConvertFrom-StreamerBotImportCode -Code $ChatCode
   $receiverImport = ConvertFrom-StreamerBotImportCode -Code $ReceiverCode
+  $processImport = $null
+  if (-not [string]::IsNullOrWhiteSpace($ProcessEventCode)) {
+    $processImport = ConvertFrom-StreamerBotImportCode -Code $ProcessEventCode
+  }
   $actions = @()
   $seen = @{}
-  foreach ($action in @($receiverImport.data.actions) + @($chatImport.data.actions)) {
+  $allActions = @($receiverImport.data.actions) + @($chatImport.data.actions)
+  if ($null -ne $processImport) { $allActions += @($processImport.data.actions) }
+  foreach ($action in $allActions) {
     $name = [string]$action.name
     if ([string]::IsNullOrWhiteSpace($name) -or $seen.ContainsKey($name)) { continue }
     $seen[$name] = $true
@@ -88,7 +96,7 @@ function Merge-StreamerBotImportCodes {
   }
   $chatImport.data.actions = $actions
   $chatImport.meta.name = 'FreakShow'
-  $chatImport.meta.description = 'FreakShow Output Receiver, Resolver und Chat Sender'
+  $chatImport.meta.description = 'FreakShow Output Receiver, Resolver, Chat Sender und Process Event'
   return ConvertTo-StreamerBotImportCode -Import $chatImport
 }
 
@@ -112,9 +120,19 @@ if ([string]::IsNullOrWhiteSpace($OutputImportCode)) {
     $OutputImportCode = ''
   }
 }
+if ([string]::IsNullOrWhiteSpace($ProcessEventImportCode)) {
+  $processEventImportPath = Join-Path $PSScriptRoot 'FreakShow-Process-Event.sb'
+  try {
+    if (Test-Path -LiteralPath $processEventImportPath -PathType Leaf) {
+      $ProcessEventImportCode = [System.IO.File]::ReadAllText($processEventImportPath, [System.Text.Encoding]::UTF8).Trim()
+    }
+  } catch {
+    $ProcessEventImportCode = ''
+  }
+}
 if (-not [string]::IsNullOrWhiteSpace($ChatImportCode) -and -not [string]::IsNullOrWhiteSpace($OutputImportCode)) {
   try {
-    $ChatImportCode = Merge-StreamerBotImportCodes -ChatCode $ChatImportCode -ReceiverCode $OutputImportCode
+    $ChatImportCode = Merge-StreamerBotImportCodes -ChatCode $ChatImportCode -ReceiverCode $OutputImportCode -ProcessEventCode $ProcessEventImportCode
   } catch {
     Write-Warning ('FreakShow Streamer.bot-Import konnte nicht zusammengeführt werden: ' + $_.Exception.Message)
   }
@@ -4075,6 +4093,17 @@ while ($true) {
         Write-HttpResponse -Stream $stream -StatusCode 404 -Reason 'Not Found' -Body 'chat import unavailable' -ContentType 'text/plain'
       } else {
         Write-HttpResponse -Stream $stream -StatusCode 200 -Reason 'OK' -Body $ChatImportCode -ContentType 'text/plain'
+      }
+      continue
+    }
+
+    # Einmaliger Import fuer die zentralen Game-Event-Aktionen. FreakShow ruft
+    # sie danach direkt ueber die Streamer.bot-WebSocket-Schnittstelle auf.
+    if ($method -eq 'GET' -and $path -eq '/game-event-import-code') {
+      if ([string]::IsNullOrWhiteSpace($ProcessEventImportCode)) {
+        Write-HttpResponse -Stream $stream -StatusCode 404 -Reason 'Not Found' -Body 'game event import unavailable' -ContentType 'text/plain'
+      } else {
+        Write-HttpResponse -Stream $stream -StatusCode 200 -Reason 'OK' -Body $ProcessEventImportCode -ContentType 'text/plain'
       }
       continue
     }

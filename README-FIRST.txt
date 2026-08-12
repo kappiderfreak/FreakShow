@@ -1,7 +1,7 @@
-FreakShow 1.5.0
+FreakShow 1.5.1
 ===============
 
-Diese Veroeffentlichung enthaelt den Funktionsstand 1.5.0.
+Diese Veroeffentlichung enthaelt den Hotfix-Stand 1.5.1.
 Eine vollstaendige Aenderungsliste steht in CHANGELOG.md.
 
 DEUTSCH

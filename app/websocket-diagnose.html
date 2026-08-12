@@ -3272,6 +3272,57 @@
       border-top: 1px solid rgba(255,255,255,.14);
     }
     html.ui-themed .game-control-nav-footer { border-top-color: var(--t-border); }
+    .game-event-nav-footer {
+      flex: 0 0 auto;
+      margin: 10px -10px -10px;
+      padding: 10px;
+      border-top: 1px solid rgba(255,255,255,.14);
+    }
+    html.ui-themed .game-event-nav-footer { border-top-color: var(--t-border); }
+    .game-event-import-copy {
+      width: 100%;
+      min-height: 34px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      white-space: nowrap;
+    }
+    .game-event-import-copy-icon { flex: 0 0 auto; }
+    .game-event-import-status {
+      display: block;
+      min-height: 14px;
+      margin-top: 6px;
+      color: var(--t-muted, #9aaec7);
+      font-size: 10px;
+      line-height: 1.35;
+      text-align: center;
+    }
+    .game-event-import-status.running { color: #75e89a; }
+    .game-event-import-status.suspended { color: #ff91a2; }
+    #game-event-import-modal .sb-modal-panel { width: min(780px, 100%); }
+    .game-event-import-purpose {
+      display: grid;
+      gap: 8px;
+      color: var(--t-text, #d8e2f2);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    .game-event-import-purpose p { margin: 0; }
+    .game-event-import-purpose ul {
+      display: grid;
+      gap: 6px;
+      margin: 0;
+      padding-left: 22px;
+    }
+    .game-event-import-purpose strong { color: var(--t-heading, #eaf1fb); }
+    .game-event-import-install {
+      padding: 9px 10px;
+      border: 1px solid var(--t-border, #2a3646);
+      border-radius: 7px;
+      background: color-mix(in srgb, var(--t-input-bg, #0d1219) 86%, transparent);
+      color: var(--t-muted, #9fb0c9);
+    }
     .game-control-keyboard-layout-field {
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto;
@@ -8400,6 +8451,13 @@
               </div>
             </div>
             <div id="game-event-control-list" class="video-overlay-list" aria-label="Gespeicherte Game Events"></div>
+            <div class="game-event-nav-footer">
+              <button id="btn-game-event-import-copy" type="button" class="btn-primary game-event-import-copy" title="Zentrale Game-Event-Aktionen für Streamer.bot kopieren">
+                <span class="game-event-import-copy-icon" aria-hidden="true">📋</span>
+                <span id="game-event-import-copy-label" data-i18n="gameEvent.importCopy">Streamer.bot-Code kopieren</span>
+              </button>
+              <span id="game-event-import-copy-status" class="game-event-import-status" aria-live="polite"></span>
+            </div>
           </aside>
           <div id="game-event-control-editor" class="video-manager-editor" hidden>
             <div class="video-editor-head">
@@ -8589,8 +8647,8 @@
                 </div>
                 <div class="conn-sb-row">
                   <span id="streamer-status" class="streamer-status" title="Zeigt den verbundenen Streamer.bot.">Streamer.bot Name</span>
-                  <label>Host <input id="cfg-host" type="text" value="127.0.0.1"></label>
-                  <label>Port <input id="cfg-port" class="port" type="number" value="8081"></label>
+                  <label>Host <input id="cfg-host" name="freakshow-streamerbot-host" type="text" value="127.0.0.1" autocomplete="off" autocapitalize="none" spellcheck="false"></label>
+                  <label>Port <input id="cfg-port" name="freakshow-streamerbot-port" class="port" type="number" value="8081" min="1" max="65535" autocomplete="off"></label>
                   <button type="button" id="cfg-conn-reveal" class="btn-muted" title="Host/Port verbergen" aria-label="Host/Port anzeigen/verbergen" style="flex:0 0 auto; min-width:38px; font-size:16px; line-height:1;">👁</button>
                   <label><span data-i18n="conn.password">Passwort</span> <input id="cfg-password" type="password" autocomplete="current-password" placeholder="WebSocket-Passwort"></label>
                   <button type="button" id="cfg-password-reveal" class="btn-muted" title="Passwort anzeigen/verbergen" aria-label="Passwort anzeigen/verbergen" style="flex:0 0 auto; min-width:38px; font-size:16px; line-height:1;">🙈</button>
@@ -8625,7 +8683,7 @@
                 <p class="settings-hint" style="margin:4px 0 8px"><span data-i18n="conn.allowedHint">Leer = alle im Heimnetz dürfen. Trägst du IPs ein, dürfen NUR diese – dieser PC bleibt über alle eigenen Adressen immer erlaubt. Deine aktuelle IP:</span> <code id="allowed-ips-self">…</code></p>
                 <div id="allowed-ips-list" class="allowed-ips-list"></div>
                 <div class="settings-row" style="flex-wrap:wrap; margin-top:6px">
-                  <input id="allowed-ips-input" type="text" placeholder="z. B. LAN-IP des Geräts" style="flex:1 1 200px; min-width:160px">
+                  <input id="allowed-ips-input" type="text" placeholder="z. B. 192.168.1.50" style="flex:1 1 200px; min-width:160px">
                   <button type="button" id="allowed-ips-add" class="btn-muted" data-i18n="conn.allowedAdd">Hinzufügen</button>
                   <button type="button" id="allowed-ips-add-self" class="btn-muted" title="Deine aktuelle IP freigeben" data-i18n="conn.allowedSelf">Diese IP</button>
                 </div>
@@ -10044,6 +10102,21 @@
         if (oe && typeof syncSwitchOn === 'function') syncSwitchOn(oe.closest('label.switch'));
       }
 
+      // Chromium/WebView2 kann Formulare nach dem Laden automatisch mit alten
+      // Werten befuellen. Die gemeinsame Bridge-Datei bleibt verbindlich.
+      function refreshSharedConnectionFields() {
+        if (!window.KappiOverlayConfig || typeof window.KappiOverlayConfig.fetchShared !== 'function') return;
+        window.KappiOverlayConfig.fetchShared(function (shared) {
+          if (!shared || !shared.host || !shared.port) return;
+          HOST = shared.host;
+          PORT = parseInt(shared.port, 10) || PORT;
+          var hostField = byId('cfg-host');
+          var portField = byId('cfg-port');
+          if (hostField) hostField.value = HOST;
+          if (portField) portField.value = PORT;
+        });
+      }
+
       function clampDimension(value, fallback) {
         var parsed = parseInt(value, 10);
         if (isNaN(parsed)) parsed = fallback;
@@ -10174,8 +10247,18 @@
       }
 
       function readConfigFields() {
-        HOST = byId('cfg-host').value || '127.0.0.1';
-        PORT = parseInt(byId('cfg-port').value || '8081', 10) || 8081;
+        var candidateHost = String(byId('cfg-host').value || '').trim();
+        var candidatePort = String(byId('cfg-port').value || '').trim();
+        var connectionValid = window.KappiOverlayConfig && typeof window.KappiOverlayConfig.isValidConnection === 'function'
+          ? window.KappiOverlayConfig.isValidConnection(candidateHost, candidatePort)
+          : !!candidateHost && /^\d+$/.test(candidatePort) && parseInt(candidatePort, 10) >= 1 && parseInt(candidatePort, 10) <= 65535;
+        if (connectionValid) {
+          HOST = candidateHost;
+          PORT = parseInt(candidatePort, 10);
+        } else {
+          byId('cfg-host').value = HOST;
+          byId('cfg-port').value = PORT;
+        }
         STREAMERBOT_PASSWORD = byId('cfg-password').value || '';
         try {
           if (STREAMERBOT_PASSWORD) window.localStorage.setItem(STREAMERBOT_PASSWORD_KEY, STREAMERBOT_PASSWORD);
@@ -10206,6 +10289,7 @@
       function openSettingsMenu() {
         if (typeof cheatClearTransientTextSelection === 'function') cheatClearTransientTextSelection();
         var m = byId('workspace-view-settings'); if (m) m.hidden = false;
+        refreshSharedConnectionFields();
         // Blätter-Pfeile neu bewerten – Streifen waren bei verborgenem Menü 0 breit.
         // Mehrere Ticks, weil das finale Layout (SVG-Swatches/Thumbs) erst nach ein paar Frames steht.
         if (typeof refreshCarousels === 'function') {
@@ -18179,7 +18263,7 @@
           'game.tapAfter': 'Nach Dauer erneut tippen', 'game.blockPhysical': 'Physische Taste sperren', 'game.dynamicInput': 'Kanalpunkt-Eingabe als Taste',
           'game.streamerbotTrigger': 'Streamer.bot-Trigger', 'game.runDuration': 'Ausführungsdauer', 'game.repeatInterval': 'Auslöseabstand',
           'game.testControl': 'Steuerung testen', 'game.deleteControl': 'Steuerung löschen',
-          'gameEvent.controlsTitle': 'Game Event', 'gameEvent.selectControl': 'Game Event auswählen',
+          'gameEvent.controlsTitle': 'Game Event', 'gameEvent.selectControl': 'Game Event auswählen', 'gameEvent.importCopy': 'Streamer.bot-Code kopieren',
           'gameEvent.settingsTitle': 'Game Event', 'gameEvent.settingsHint': 'Schaltet den Game-Event-Reiter mit eigener Gruppensteuerung frei.', 'gameEvent.settingsToggle': 'Game-Event-Reiter anzeigen',
           'settings.colors': 'Darstellung', 'settings.colorsHint': 'Farb-Schema der Oberfläche wählen. Rote/grüne Bedeutungs-Knöpfe bleiben erkennbar.',
           'settings.bg': 'Hintergrundbild', 'settings.bgHint': 'Ein Bild oder Video (Live-Wallpaper) aus deinem Ordner auswählen.', 'settings.bgUse': 'Hintergrundbild verwenden', 'settings.bgChoose': 'Bild oder Video auswählen…', 'settings.bgRemove': 'Entfernen', 'settings.bgGallery': 'Gespeicherte Hintergründe – klick zum Wechseln:',
@@ -18198,7 +18282,7 @@
           'conn.hostConnected': 'Overlay auf dem Host ist mit Streamer.bot verbunden ✓ – gilt für alle Overlays/Links.',
           'conn.hostConnectedOvl': 'Verbunden ✓ – das echte Overlay läuft. (Die Vorschauen unten können von einem anderen PC „nicht verbunden" zeigen – Browser-Grenze, kein echtes Problem.)',
           'conn.hostNotConnected': 'Overlay läuft, aber Streamer.bot ist NICHT verbunden.',
-          'conn.allowedEmpty': '(leer – alle im LAN erlaubt)', 'conn.ipPlaceholder': 'z. B. LAN-IP des Geräts',
+          'conn.allowedEmpty': '(leer – alle im LAN erlaubt)', 'conn.ipPlaceholder': 'z. B. 192.168.1.50',
           'md.h1': 'Überschrift 1', 'md.h2': 'Überschrift 2', 'md.h3': 'Überschrift 3', 'md.bold': 'Fett', 'md.italic': 'Kursiv', 'md.underline': 'Unterstrichen', 'md.strike': 'Durchgestrichen', 'md.list': 'Liste', 'md.table': 'Tabelle einfügen', 'md.emoji': 'Emoji', 'md.emojiAdd': 'Emoji hinzufügen', 'md.emojiPrompt': 'Emoji eingeben oder einfügen:', 'md.emojiSave': 'Hinzufügen', 'md.imageEmoji': 'Bild-Emojis', 'md.imageEmojiSize': 'Größe', 'md.imageEmojiUpload': 'Bild als Emoji hochladen', 'md.emojiRemoveHint': 'Rechtsklick zum Entfernen', 'md.imageEmojiRemove': 'Entfernen', 'md.textColor': 'Textfarbe', 'md.imageEmojiUploading': 'Bild wird hochgeladen …', 'md.imageEmojiUploaded': 'Bild-Emoji hinzugefügt.', 'md.imageEmojiInvalid': 'Bitte eine Bilddatei auswählen.', 'md.imageEmojiTooLarge': 'Das Bild ist zu groß (max. 10 MB).', 'md.imageEmojiReadFailed': 'Das Bild konnte nicht gelesen werden.', 'md.imageEmojiUploadFailed': 'Bild-Emoji konnte nicht hochgeladen werden.', 'md.col': 'Spalte', 'md.cell': 'Text',
           'settings.connections': 'Verbindungen', 'settings.connectionsHint': 'Ob deine wichtigen Schnittstellen offen und erreichbar sind. Live-Anzeige.', 'settings.actHint': 'ACT/OverlayPlugin öffnet eine WebSocket-API. Standard ist ws://127.0.0.1:10501/ws. Trage sie ein und prüfe, ob die API offen ist.', 'settings.actTest': 'Prüfen', 'settings.actIdle': 'Noch nicht geprüft.',
           'settings.defaults': 'Standardeinstellungen', 'settings.defaultsNav': 'Standard', 'settings.defaultsHint': 'Schema, Hintergrund und Sprache auf die Standardwerte zurücksetzen.', 'settings.reset': 'Auf Standard zurücksetzen',
@@ -18292,7 +18376,7 @@
           'game.tapAfter': 'Tap again after duration', 'game.blockPhysical': 'Block physical key', 'game.dynamicInput': 'Use channel-point input as key',
           'game.streamerbotTrigger': 'Streamer.bot trigger', 'game.runDuration': 'Execution duration', 'game.repeatInterval': 'Trigger interval',
           'game.testControl': 'Test control', 'game.deleteControl': 'Delete control',
-          'gameEvent.controlsTitle': 'Game Event', 'gameEvent.selectControl': 'Select game event',
+          'gameEvent.controlsTitle': 'Game Event', 'gameEvent.selectControl': 'Select game event', 'gameEvent.importCopy': 'Copy Streamer.bot code',
           'gameEvent.settingsTitle': 'Game Event', 'gameEvent.settingsHint': 'Enables the Game Event tab with its own group controls.', 'gameEvent.settingsToggle': 'Show Game Event tab',
           'settings.colors': 'Appearance', 'settings.colorsHint': 'Choose a color scheme for the interface. Red/green status buttons stay recognizable.',
           'settings.bg': 'Background image', 'settings.bgHint': 'Choose an image or video (live wallpaper) from your folder.', 'settings.bgUse': 'Use background image', 'settings.bgChoose': 'Choose image or video…', 'settings.bgRemove': 'Remove', 'settings.bgGallery': 'Saved backgrounds – click to switch:',
@@ -18311,7 +18395,7 @@
           'conn.hostConnected': 'The overlay on the host is connected to Streamer.bot ✓ – applies to all overlays/links.',
           'conn.hostConnectedOvl': 'Connected ✓ – the real overlay is running. (The previews below may show "not connected" from another PC – a browser limitation, not a real problem.)',
           'conn.hostNotConnected': 'The overlay is running, but Streamer.bot is NOT connected.',
-          'conn.allowedEmpty': '(empty – everyone on the LAN allowed)', 'conn.ipPlaceholder': 'e.g. device LAN IP',
+          'conn.allowedEmpty': '(empty – everyone on the LAN allowed)', 'conn.ipPlaceholder': 'e.g. 192.168.1.50',
           'md.h1': 'Heading 1', 'md.h2': 'Heading 2', 'md.h3': 'Heading 3', 'md.bold': 'Bold', 'md.italic': 'Italic', 'md.underline': 'Underline', 'md.strike': 'Strikethrough', 'md.list': 'List', 'md.table': 'Insert table', 'md.emoji': 'Emoji', 'md.emojiAdd': 'Add emoji', 'md.emojiPrompt': 'Enter or paste an emoji:', 'md.emojiSave': 'Add', 'md.imageEmoji': 'Image emojis', 'md.imageEmojiSize': 'Size', 'md.imageEmojiUpload': 'Upload image as emoji', 'md.emojiRemoveHint': 'Right-click to remove', 'md.imageEmojiRemove': 'Remove', 'md.textColor': 'Text color', 'md.imageEmojiUploading': 'Uploading image …', 'md.imageEmojiUploaded': 'Image emoji added.', 'md.imageEmojiInvalid': 'Choose an image file.', 'md.imageEmojiTooLarge': 'The image is too large (max. 10 MB).', 'md.imageEmojiReadFailed': 'The image could not be read.', 'md.imageEmojiUploadFailed': 'The image emoji could not be uploaded.', 'md.col': 'Column', 'md.cell': 'Text',
           'settings.connections': 'Connections', 'settings.connectionsHint': 'Whether your key interfaces are open and reachable. Live view.', 'settings.actHint': 'ACT/OverlayPlugin opens a WebSocket API. Default is ws://127.0.0.1:10501/ws. Enter it and check whether the API is open.', 'settings.actTest': 'Check', 'settings.actIdle': 'Not checked yet.',
           'settings.defaults': 'Defaults', 'settings.defaultsNav': 'Defaults', 'settings.defaultsHint': 'Reset scheme, background and language to the default values.', 'settings.reset': 'Reset to defaults',
@@ -18405,7 +18489,7 @@
           'game.tapAfter': 'Pulsar de nuevo tras la duración', 'game.blockPhysical': 'Bloquear tecla física', 'game.dynamicInput': 'Usar la entrada de puntos como tecla',
           'game.streamerbotTrigger': 'Trigger de Streamer.bot', 'game.runDuration': 'Duración de ejecución', 'game.repeatInterval': 'Intervalo de activación',
           'game.testControl': 'Probar control', 'game.deleteControl': 'Eliminar control',
-          'gameEvent.controlsTitle': 'Evento de juego', 'gameEvent.selectControl': 'Seleccionar evento de juego',
+          'gameEvent.controlsTitle': 'Evento de juego', 'gameEvent.selectControl': 'Seleccionar evento de juego', 'gameEvent.importCopy': 'Copiar código de Streamer.bot',
           'gameEvent.settingsTitle': 'Evento de juego', 'gameEvent.settingsHint': 'Activa la pestaña Evento de juego con sus propios controles de grupo.', 'gameEvent.settingsToggle': 'Mostrar pestaña Evento de juego',
           'settings.colors': 'Apariencia', 'settings.colorsHint': 'Elige un esquema de color para la interfaz. Los botones rojos/verdes de estado siguen siendo reconocibles.',
           'settings.bg': 'Imagen de fondo', 'settings.bgHint': 'Elige una imagen o vídeo (fondo animado) de tu carpeta.', 'settings.bgUse': 'Usar imagen de fondo', 'settings.bgChoose': 'Elegir imagen o vídeo…', 'settings.bgRemove': 'Quitar', 'settings.bgGallery': 'Fondos guardados – haz clic para cambiar:',
@@ -18424,7 +18508,7 @@
           'conn.hostConnected': 'El overlay del host está conectado a Streamer.bot ✓ – vale para todos los overlays/enlaces.',
           'conn.hostConnectedOvl': 'Conectado ✓ – el overlay real está en marcha. (Las vistas previas de abajo pueden mostrar «no conectado» desde otro PC – límite del navegador, no es un problema real.)',
           'conn.hostNotConnected': 'El overlay está en marcha, pero Streamer.bot NO está conectado.',
-          'conn.allowedEmpty': '(vacío – todos en la LAN permitidos)', 'conn.ipPlaceholder': 'p. ej. IP LAN del dispositivo',
+          'conn.allowedEmpty': '(vacío – todos en la LAN permitidos)', 'conn.ipPlaceholder': 'p. ej. 192.168.1.50',
           'md.h1': 'Título 1', 'md.h2': 'Título 2', 'md.h3': 'Título 3', 'md.bold': 'Negrita', 'md.italic': 'Cursiva', 'md.underline': 'Subrayado', 'md.strike': 'Tachado', 'md.list': 'Lista', 'md.table': 'Insertar tabla', 'md.emoji': 'Emoji', 'md.emojiAdd': 'Añadir emoji', 'md.emojiPrompt': 'Introduce o pega un emoji:', 'md.emojiSave': 'Añadir', 'md.imageEmoji': 'Emojis de imagen', 'md.imageEmojiSize': 'Tamaño', 'md.imageEmojiUpload': 'Subir imagen como emoji', 'md.emojiRemoveHint': 'Clic derecho para quitar', 'md.imageEmojiRemove': 'Quitar', 'md.textColor': 'Color de texto', 'md.imageEmojiUploading': 'Subiendo imagen …', 'md.imageEmojiUploaded': 'Emoji de imagen añadido.', 'md.imageEmojiInvalid': 'Elige un archivo de imagen.', 'md.imageEmojiTooLarge': 'La imagen es demasiado grande (máx. 10 MB).', 'md.imageEmojiReadFailed': 'No se pudo leer la imagen.', 'md.imageEmojiUploadFailed': 'No se pudo subir el emoji de imagen.', 'md.col': 'Columna', 'md.cell': 'Texto',
           'settings.connections': 'Conexiones', 'settings.connectionsHint': 'Si tus interfaces clave están abiertas y accesibles. Vista en vivo.', 'settings.actHint': 'ACT/OverlayPlugin abre una API WebSocket. Por defecto es ws://127.0.0.1:10501/ws. Introdúcela y comprueba si la API está abierta.', 'settings.actTest': 'Comprobar', 'settings.actIdle': 'Aún no comprobado.',
           'settings.defaults': 'Valores predeterminados', 'settings.defaultsNav': 'Valores', 'settings.defaultsHint': 'Restablecer esquema, fondo e idioma a los valores predeterminados.', 'settings.reset': 'Restablecer valores',
@@ -18929,7 +19013,7 @@
         'Text markieren + Rechtsklick: Fett / Kursiv / Unterstrichen / Überschriften / Liste / Tabelle (Markdown)': 'Select text + right-click: bold / italic / underline / headings / list / table (Markdown)',
         'Einstellungen': 'Settings',
         'Verbunden mit Streamer.bot: ': 'Connected to Streamer.bot: ',
-        'z. B. LAN-IP des Geräts': 'e.g. device LAN IP',
+        'z. B. 192.168.1.50': 'e.g. 192.168.1.50',
         'Trigger = Streamer.bot Custom-Event · Reward = reagiert direkt auf die Twitch-Belohnung (per Name)': 'Trigger = Streamer.bot custom event · reward = reacts directly to the Twitch reward (by name)',
         'Freie Positionierung': 'Free positioning',
         'An – im Monitor verschieben': 'On – move in the monitor',
@@ -18966,7 +19050,7 @@
         'Text markieren + Rechtsklick: Fett / Kursiv / Unterstrichen / Überschriften / Liste / Tabelle (Markdown)': 'Seleccionar texto + clic derecho: negrita / cursiva / subrayado / encabezados / lista / tabla (Markdown)',
         'Einstellungen': 'Ajustes',
         'Verbunden mit Streamer.bot: ': 'Conectado con Streamer.bot: ',
-        'z. B. LAN-IP des Geräts': 'p. ej. IP LAN del dispositivo',
+        'z. B. 192.168.1.50': 'p. ej. 192.168.1.50',
         'Trigger = Streamer.bot Custom-Event · Reward = reagiert direkt auf die Twitch-Belohnung (per Name)': 'Disparador = evento personalizado de Streamer.bot · recompensa = reacciona directamente a la recompensa de Twitch (por nombre)',
         'Freie Positionierung': 'Posicionamiento libre',
         'An – im Monitor verschieben': 'Activado – mover en el monitor',
@@ -21883,6 +21967,183 @@
         gameControlShowMenu(menu, rect.left, rect.bottom + 4);
       }
 
+      var GAME_EVENT_IMPORT_CODE_URL = '/game-event-import-code';
+      var gameEventImportCodeCache = '';
+
+      function resetGameEventImportCopyUi() {
+        var label = byId('game-event-import-copy-label');
+        var status = byId('game-event-import-copy-status');
+        if (label) label.textContent = gameControlText(
+          'Streamer.bot-Code kopieren',
+          'Copy Streamer.bot code',
+          'Copiar código de Streamer.bot'
+        );
+        if (status) {
+          status.textContent = '';
+          status.className = 'game-event-import-status';
+        }
+      }
+
+      function setGameEventImportCopyStatus(message, className) {
+        var status = byId('game-event-import-copy-status');
+        if (!status) return;
+        status.textContent = message || '';
+        status.className = 'game-event-import-status' + (className ? ' ' + className : '');
+      }
+
+      function loadGameEventImportCode() {
+        if (gameEventImportCodeCache) return Promise.resolve(gameEventImportCodeCache);
+        return fetch(GAME_EVENT_IMPORT_CODE_URL, { cache: 'no-store' }).then(function (response) {
+          if (!response.ok) throw new Error('HTTP ' + response.status);
+          return response.text();
+        }).then(function (text) {
+          text = String(text || '').trim();
+          if (!text) throw new Error('empty import');
+          gameEventImportCodeCache = text;
+          return text;
+        });
+      }
+
+      function openGameEventImportModal(code) {
+        var existing = byId('game-event-import-modal');
+        if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+
+        var backdrop = document.createElement('div');
+        backdrop.id = 'game-event-import-modal';
+        backdrop.className = 'sb-modal-backdrop';
+
+        var panel = document.createElement('div');
+        panel.className = 'sb-modal-panel';
+
+        var head = document.createElement('div');
+        head.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;';
+        var title = document.createElement('div');
+        title.className = 'sb-modal-title';
+        title.textContent = gameControlText(
+          'Streamer.bot-Import: Game Events',
+          'Streamer.bot import: Game Events',
+          'Importación de Streamer.bot: Eventos de juego'
+        );
+        var closeX = document.createElement('button');
+        closeX.type = 'button';
+        closeX.className = 'btn-muted';
+        closeX.textContent = '✕';
+        closeX.style.minWidth = '34px';
+        head.appendChild(title);
+        head.appendChild(closeX);
+
+        var purpose = document.createElement('div');
+        purpose.className = 'game-event-import-purpose';
+        var intro = document.createElement('p');
+        intro.textContent = gameControlText(
+          'Dieser Import richtet die Aktionen für den Kategorienwechsel bei Twitch und YouTube ein:',
+          'This import creates the actions used to switch categories on Twitch and YouTube:',
+          'Esta importación crea las acciones para cambiar categorías en Twitch y YouTube:'
+        );
+        var features = document.createElement('ul');
+        var processFeature = document.createElement('li');
+        var processName = document.createElement('strong');
+        processName.textContent = 'FreakShow - Process Event: ';
+        processFeature.appendChild(processName);
+        processFeature.appendChild(document.createTextNode(gameControlText(
+          'Startet eine in Game Events eingerichtete EXE, wechselt Streamer.bot automatisch zur dort gewählten Twitch- und/oder YouTube-Kategorie.',
+          'When an EXE configured under Game Events starts, Streamer.bot automatically switches to the selected Twitch and/or YouTube category.',
+          'Cuando se inicia un EXE configurado en Eventos de juego, Streamer.bot cambia automáticamente a la categoría seleccionada de Twitch y/o YouTube.'
+        )));
+        var manualFeature = document.createElement('li');
+        var manualName = document.createElement('strong');
+        manualName.textContent = 'FreakShow - Just Chatting: ';
+        manualFeature.appendChild(manualName);
+        manualFeature.appendChild(document.createTextNode(gameControlText(
+          'Wechselt manuell zu „Just Chatting“ auf Twitch beziehungsweise „People & Blogs“ auf YouTube – geeignet für Tastenkürzel und Stream Deck.',
+          'Manually switches to “Just Chatting” on Twitch or “People & Blogs” on YouTube — suitable for hotkeys and Stream Deck.',
+          'Cambia manualmente a «Just Chatting» en Twitch o «People & Blogs» en YouTube; apto para atajos de teclado y Stream Deck.'
+        )));
+        features.appendChild(processFeature);
+        features.appendChild(manualFeature);
+        var install = document.createElement('p');
+        install.className = 'game-event-import-install';
+        install.textContent = gameControlText(
+          'In Streamer.bot: Import → Code einfügen → Importieren. Danach sind beide Aktionen direkt in der Gruppe „FreakShow“ vorhanden.',
+          'In Streamer.bot: Import → paste the code → Import. Both actions will then appear in the “FreakShow” group.',
+          'En Streamer.bot: Importar → pega el código → Importar. Después aparecerán ambas acciones en el grupo «FreakShow».'
+        );
+        purpose.appendChild(intro);
+        purpose.appendChild(features);
+        purpose.appendChild(install);
+
+        var textarea = document.createElement('textarea');
+        textarea.readOnly = true;
+        textarea.value = code;
+        textarea.spellcheck = false;
+        textarea.className = 'sb-modal-code';
+
+        var actions = document.createElement('div');
+        actions.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;';
+        var copyButton = document.createElement('button');
+        copyButton.type = 'button';
+        copyButton.className = 'btn-success';
+        copyButton.textContent = gameControlText('Code kopieren', 'Copy code', 'Copiar código');
+        var closeButton = document.createElement('button');
+        closeButton.type = 'button';
+        closeButton.textContent = gameControlText('Schließen', 'Close', 'Cerrar');
+        actions.appendChild(copyButton);
+        actions.appendChild(closeButton);
+
+        panel.appendChild(head);
+        panel.appendChild(purpose);
+        panel.appendChild(textarea);
+        panel.appendChild(actions);
+        backdrop.appendChild(panel);
+        document.body.appendChild(backdrop);
+
+        function close() {
+          if (backdrop.parentNode) backdrop.parentNode.removeChild(backdrop);
+          document.removeEventListener('keydown', onKey);
+        }
+        function onKey(event) { if (event.key === 'Escape') close(); }
+        copyButton.onclick = function () {
+          copyButton.disabled = true;
+          writeChatImportClipboard(code).then(function () {
+            copyButton.textContent = gameControlText('Importcode kopiert ✓', 'Import code copied ✓', 'Código copiado ✓');
+          }).catch(function () {
+            copyButton.textContent = gameControlText('Bitte manuell kopieren', 'Please copy manually', 'Copia manualmente');
+            try { textarea.focus(); textarea.select(); } catch (error) {}
+          }).then(function () {
+            window.setTimeout(function () {
+              copyButton.disabled = false;
+              copyButton.textContent = gameControlText('Code kopieren', 'Copy code', 'Copiar código');
+            }, 1800);
+          });
+        };
+        closeButton.onclick = close;
+        closeX.onclick = close;
+        backdrop.addEventListener('click', function (event) { if (event.target === backdrop) close(); });
+        document.addEventListener('keydown', onKey);
+      }
+
+      function copyGameEventImportCode() {
+        var button = byId('btn-game-event-import-copy');
+        if (button) button.disabled = true;
+        setGameEventImportCopyStatus(gameControlText(
+          'Importcode wird geladen …',
+          'Loading import code …',
+          'Cargando el código …'
+        ), '');
+        loadGameEventImportCode().then(function (code) {
+          resetGameEventImportCopyUi();
+          openGameEventImportModal(code);
+        }).catch(function () {
+          setGameEventImportCopyStatus(gameControlText(
+            'Importcode konnte nicht kopiert werden.',
+            'The import code could not be copied.',
+            'No se pudo copiar el código.'
+          ), 'suspended');
+        }).then(function () {
+          if (button) button.disabled = false;
+        });
+      }
+
       function initGameEventControls() {
         gameEventControlState = gameControlReadState(GAME_EVENT_CONTROLS_KEY, 'game-event');
         var migratedEventTypes = false;
@@ -21897,6 +22158,9 @@
         if (addGroup) addGroup.onclick = gameEventControlCreateGroup;
         var addItem = byId('btn-game-event-control-add');
         if (addItem) addItem.onclick = gameEventControlOpenAddMenu;
+        var importButton = byId('btn-game-event-import-copy');
+        if (importButton) importButton.onclick = copyGameEventImportCode;
+        resetGameEventImportCopyUi();
         var host = byId('game-event-control-list');
         if (host && !host.dataset.blankDeselectBound) {
           host.dataset.blankDeselectBound = '1';
@@ -28707,6 +28971,10 @@
       };
 
       syncConfigFields();
+      refreshSharedConnectionFields();
+      window.addEventListener('pageshow', refreshSharedConnectionFields);
+      setTimeout(refreshSharedConnectionFields, 250);
+      setTimeout(refreshSharedConnectionFields, 1200);
 
       // ===== Emoji-Regen: User-Verwaltung (Liste + Editor, gespeichert im Browser) =====
       var ER_KEY = 'kappi.emoterain.users';

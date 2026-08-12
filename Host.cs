@@ -180,6 +180,7 @@ internal sealed class EmbeddedBridge : IDisposable
             ps.AddParameter("SettingsPagePath", Path.Combine(appRoot, "websocket-diagnose.html"));
             ps.AddParameter("ChatImportCode", ResourceText("FreakShow.ChatSenderImport"));
             ps.AddParameter("OutputImportCode", ResourceText("FreakShow.OutputReceiverImport"));
+            ps.AddParameter("ProcessEventImportCode", ResourceText("FreakShow.ProcessEventImport"));
             ps.AddParameter("EmbeddedHost", true);
             ps.Streams.Error.DataAdded += delegate(object sender, DataAddedEventArgs e)
             {
