@@ -1,5 +1,17 @@
 # FreakShow – Änderungen
 
+## 1.5.3
+
+### Neu
+
+- die Gruppen- und Listenspalte lässt sich in allen Reitern über einen Knopf am linken Rand ein- und ausklappen; der Editor nutzt dann die volle Breite
+
+### Korrigiert
+
+- Video-Editor: die Monitor-Vorschau ragte bei mittleren Fensterbreiten links und rechts in die Reiterleisten hinein
+- Video-Editor: beim Wechsel des Monitor-Formats (z. B. Ultrawide auf Full HD) erschien eine Bildlaufleiste; die Vorschau passt ihre Größe jetzt an den verfügbaren Platz an
+- Overlays: beim Einklappen der Gruppenspalte blieb ein senkrechter Trennstrich mitten im Bild stehen
+
 ## 1.5.2
 
 ### Hotfix

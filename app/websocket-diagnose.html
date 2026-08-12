@@ -724,6 +724,138 @@
       overflow: hidden;
     }
 
+    /* Chat + Effekt/Regen gemeinsam einklappen. Der schmale Hotspot sitzt immer
+       am rechten Fensterrand; dadurch bleibt der Editor selbst maximal ruhig. */
+    .right-sidebar-edge {
+      position: fixed;
+      z-index: 4200;
+      top: 0;
+      right: 0;
+      width: 34px;
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+    }
+
+    .right-sidebar-toggle {
+      width: 30px;
+      min-width: 30px;
+      height: 74px;
+      padding: 0 2px;
+      border: 1px solid color-mix(in srgb, var(--kappi-accent-border, #5f90f2) 75%, transparent);
+      border-right: 0;
+      border-radius: 9px 0 0 9px;
+      background: color-mix(in srgb, var(--kappi-accent-bg, #183866) 82%, rgba(8,12,18,.96));
+      color: var(--kappi-accent-border, #8cb2ff);
+      box-shadow: -4px 0 18px rgba(0,0,0,.34);
+      font: 800 14px/1 var(--ui-font);
+      letter-spacing: -4px;
+      opacity: 0;
+      transform: translateX(7px);
+      pointer-events: none;
+      transition: opacity .16s ease, transform .16s ease, background .16s ease;
+    }
+
+    .right-sidebar-edge:hover .right-sidebar-toggle,
+    .right-sidebar-toggle:focus-visible,
+    body.right-sidebar-collapsed .right-sidebar-toggle {
+      opacity: 1;
+      transform: translateX(0);
+      pointer-events: auto;
+    }
+
+    body.right-sidebar-collapsed .workspace-layout {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    body.right-sidebar-collapsed .top-config {
+      margin-right: 0;
+    }
+
+    body.right-sidebar-collapsed #right-sidebar {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transform: translateX(calc(100% + 24px));
+    }
+
+    /* Gegenstueck links: die Gruppen- und Listenspalte des aktiven Reiters
+       einklappen. Gleiche Bedienung wie rechts, nur gespiegelt. */
+    .left-nav-edge {
+      position: fixed;
+      z-index: 4200;
+      top: 0;
+      left: 0;
+      width: 34px;
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      pointer-events: none;
+    }
+
+    .left-nav-toggle {
+      width: 30px;
+      min-width: 30px;
+      height: 74px;
+      padding: 0 2px;
+      border: 1px solid color-mix(in srgb, var(--kappi-accent-border, #5f90f2) 75%, transparent);
+      border-left: 0;
+      border-radius: 0 9px 9px 0;
+      background: color-mix(in srgb, var(--kappi-accent-bg, #183866) 82%, rgba(8,12,18,.96));
+      color: var(--kappi-accent-border, #8cb2ff);
+      box-shadow: 4px 0 18px rgba(0,0,0,.34);
+      font: 800 14px/1 var(--ui-font);
+      letter-spacing: -4px;
+      /* Dauerhaft sichtbar. Ein Knopf, der erst beim Anfahren des Randes
+         erscheint, ist im Betrieb nicht zu treffen. */
+      opacity: 1;
+      transform: translateX(0);
+      /* MUSS auto sein: der Rahmen darueber hat pointer-events:none, damit die
+         Gruppenliste anklickbar bleibt. Ohne das hier laesst sich der Knopf
+         weder anklicken noch ueberfahren - dann erscheint er nie. */
+      pointer-events: auto;
+      transition: opacity .16s ease, transform .16s ease, background .16s ease;
+    }
+
+    .left-nav-toggle:hover,
+    .left-nav-toggle:focus-visible {
+      background: color-mix(in srgb, var(--kappi-accent-bg, #183866) 96%, rgba(8,12,18,.96));
+    }
+
+    /* Eingeklappt: die Listenspalte verschwindet, der Editor bekommt die Breite.
+       Ueber die KLASSEN der Navigationsspalten, nicht ueber die Verschachtelung -
+       die Reiter bauen ihre Spalte unterschiedlich tief ein. Mit einem
+       Kindselektor blieb die Liste in Videos stehen und rutschte als volle
+       Breite nach oben.
+       !important, weil mehrere Reiter ihr Raster mit hoeherer Spezifitaet
+       ueberschreiben (z. B. .link-browser.image-browser). */
+    body.left-nav-collapsed .video-manager-nav,
+    body.left-nav-collapsed .cheat-nav-aside,
+    body.left-nav-collapsed .er-nav,
+    body.left-nav-collapsed .image-nav-aside,
+    body.left-nav-collapsed .link-nav {
+      display: none !important;
+    }
+
+    body.left-nav-collapsed .video-manager,
+    body.left-nav-collapsed .cheat-manager,
+    body.left-nav-collapsed .link-browser,
+    body.left-nav-collapsed .image-browser,
+    body.left-nav-collapsed .emoterain-manager {
+      grid-template-columns: minmax(0, 1fr) !important;
+    }
+
+    /* Overlays zeichnet den Spaltentrenner NICHT als Rand der Liste, sondern als
+       eigenes ::after am Raster - auf fester Position (--ed-list-w). Der bleibt
+       deshalb stehen, wenn die Liste verschwindet: genau der Streifen ohne
+       etwas davor. */
+    body.left-nav-collapsed #workspace-view-links .link-browser::after {
+      display: none;
+    }
+
+
     /* Tab-Leiste links, Monitor-Einstellungen rechts in derselben Zeile. */
     .workspace-tabs-row {
       display: flex;
@@ -1283,7 +1415,7 @@
     @media (max-width: 1500px) { .cheat-editor-primary { grid-template-columns: var(--ed-settings-w) minmax(0,1fr); } }
     @media (max-width: 1500px) { .cheat-editor-primary.has-segment-rail { grid-template-columns: var(--ed-settings-w) minmax(0,1fr); } }
     @media (max-width: 980px) { .cheat-editor-primary { grid-template-columns: 1fr; } }
-    @media (max-width: 1120px) {
+    @media (max-width: 1360px) {
       .cheat-editor-primary.has-segment-rail { grid-template-columns: 1fr; }
       .cheat-editor-primary > #cheat-fields-host-left { grid-column: 1; grid-row: auto; padding-right: 0; }
       .cheat-editor-primary > .cheat-center { grid-column: 1; grid-row: auto; }
@@ -3487,7 +3619,7 @@
       border-color: rgba(255,100,124,.58);
       background: rgba(130,24,45,.26);
     }
-    @media (max-width: 1120px) {
+    @media (max-width: 1360px) {
       .game-control-editor-primary { grid-template-columns: minmax(0, 1fr); }
       .game-control-settings { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .game-control-setting-field.game-control-trigger-field { grid-column: 1 / -1; }
@@ -3526,7 +3658,19 @@
     /* Sobald ein Video gewaehlt ist, steht LINKS ein eigenes Textfenster samt
        Formatierungsseiten. Die Bubble-Basics bleiben RECHTS. So bleibt der
        Ein/Aus-Schalter auch bei deaktiviertem Text erreichbar. */
+    /* Die Monitorspalte in der Mitte braucht eine Untergrenze. Mit minmax(0,1fr)
+       konnte sie bei mittleren Fensterbreiten auf 0 schrumpfen - die Vorschau
+       hatte dann keinen Platz mehr und ragte in die Reiterleisten links und
+       rechts. Mit der Untergrenze bleibt sie messbar, und die Deckelung in
+       applyVideoStageAspect kann greifen. */
     .video-editor-primary:has(> #video-bubble-options:not([hidden])) {
+      /* Unveraendertes Original-Raster. Achtung fuer spaetere Aenderungen:
+         --ed-settings-w IST bereits ein minmax(300px, 420px). Ein zusaetzliches
+         minmax() darum ergibt minmax(0, minmax(...)) - ungueltig, das Raster
+         faellt dann auf ungleiche Automatikbreiten zurueck. Und eine Untergrenze
+         fuer die Mitte laesst das Raster bei offenem Chat seitlich ueberlaufen.
+         Gegen eine zu breite Vorschau schuetzen stattdessen die Deckelung in
+         applyVideoStageAspect und max-width an .video-stage-fit. */
       grid-template-columns: var(--ed-settings-w) minmax(0, 1fr) var(--ed-settings-w);
     }
     .video-editor-primary:has(> #video-bubble-options:not([hidden])) > #video-bubble-options {
@@ -3552,6 +3696,12 @@
     }
     .video-stage-col > .video-stage-fit {
       width: 100%;
+      /* Sicherheitsnetz gegen die per JS gesetzte Pixelbreite: Beim Wechsel des
+         Monitor-Formats rechnet applyVideoStageAspect, bevor das Raster die neue
+         Spaltenbreite hat. Ohne diese Grenze wird die Box kurzzeitig breiter als
+         ihre Spalte - dann erscheint eine Bildlaufleiste und der Inhalt rutscht
+         seitlich weg. Als CSS-Regel gilt sie unabhaengig vom Zeitpunkt. */
+      max-width: 100%;
       min-height: 140px;
       align-self: center;
       /* Höhe wird per JS an das Monitor-Seitenverhältnis angepasst,
@@ -4188,7 +4338,7 @@
     .cheat-editor-primary > .cheat-segment-overview[hidden] {
       display: none !important;
     }
-    @media (max-width: 1120px) {
+    @media (max-width: 1360px) {
       .cheat-editor-primary > .cheat-segment-overview {
         position: static;
         grid-column: 1;
@@ -4824,6 +4974,7 @@
       align-self: start;
       overflow: hidden;
       z-index: 5;
+      transition: opacity .18s ease, transform .18s ease;
     }
 
     .sidebar .panel {
@@ -6754,7 +6905,7 @@
     /* Monitor und Einstellungsfelder schalten GEMEINSAM auf untereinander.
        Die !important-Regel bei transform verhindert, dass eine ältere, inline
        berechnete Rechtsverschiebung beim Verkleinern stehen bleibt. */
-    @media (max-width: 1120px) {
+    @media (max-width: 1360px) {
       .video-editor-primary,
       .image-editor-primary,
       .er-editor-primary,
@@ -8826,6 +8977,14 @@
         </div>
       </div>
     </aside>
+    <div id="right-sidebar-edge" class="right-sidebar-edge">
+      <button id="right-sidebar-toggle" class="right-sidebar-toggle" type="button" aria-controls="right-sidebar" aria-expanded="true" title="Chat und Effekt ausblenden">›››</button>
+    </div>
+    <!-- Gegenstueck links: klappt die Gruppen- und Listenspalte des aktiven
+         Reiters ein. Gleiche Bedienung wie rechts, nur gespiegelt. -->
+    <div id="left-nav-edge" class="left-nav-edge">
+      <button id="left-nav-toggle" class="left-nav-toggle" type="button" aria-expanded="true" title="Gruppen ausblenden">‹‹‹</button>
+    </div>
   </div>
 
   <script>
@@ -13974,6 +14133,10 @@
         var previewConfig = readConfigFields();
         var previewHost = String(parts.host || '').toLowerCase().replace(/^www\./, '');
         var previewPath = String(parts.path || '').toLowerCase();
+        // StreamUP Horizontal Chat liest "url" + "port". Innerhalb des
+        // eingebetteten Vorschau-Frames darf Chromium den direkten Wechsel von
+        // localhost zur LAN-IP blockieren. Ueber den FreakShow-Relay funktioniert
+        // dieselbe Streamer.bot-Verbindung ohne zusaetzliche Browserfreigabe.
         if (/streamup-horizontalchat\.html$/i.test(previewPath)) {
           return setQueryValues(url, {
             url: String(location.hostname || '127.0.0.1'),
@@ -14330,6 +14493,42 @@
         var boxW = Math.floor(shared.boxW);
         var boxH = Math.floor(shared.boxH);
 
+        // Sicherheitsnetz: Bei mittleren Fensterbreiten liefert sharedMonitorBox
+        // eine Breite, die groesser ist als die Rasterspalte. Die Box wird per
+        // align-self mittig gesetzt und ragte dann links UND rechts in die
+        // Reiterleisten - beim Ziehen des Fensters gut zu sehen. Auf die
+        // Spaltenbreite deckeln und die Hoehe im gleichen Verhaeltnis mitziehen,
+        // damit das Seitenverhaeltnis des Monitors erhalten bleibt.
+        var colW = Math.floor((col && col.getBoundingClientRect) ? col.getBoundingClientRect().width : 0);
+        if (colW > 0 && boxW > colW) {
+          boxH = Math.max(1, Math.round(boxH * (colW / boxW)));
+          boxW = colW;
+        }
+
+        // Auch die HOEHE deckeln: beim Wechsel von Ultrawide (21:9, flach) auf
+        // Full HD (16:9) wird die Vorschau bei gleicher Breite hoeher. Ist sie
+        // hoeher, als der Editor Platz hat, bekommt er eine senkrechte
+        // Bildlaufleiste. Verfuegbar = sichtbare Editorhoehe minus allem, was
+        // AUSSERHALB der Hauptzeile steht (Zeitleiste, Regler, Aktionszeile),
+        // minus dem, was in der Monitorspalte unter der Vorschau haengt
+        // (Abspielen/Zuruecksetzen). Die NACHBARSPALTEN derselben Zeile duerfen
+        // NICHT abgezogen werden - sie stehen neben der Vorschau, nicht darueber
+        // oder darunter; sonst wird viel zu klein gedeckelt.
+        // Wird gedeckelt, schrumpft die Breite im Seitenverhaeltnis mit.
+        var scroller = (fit.closest ? fit.closest('.video-manager-editor') : null);
+        if (scroller && scroller.clientHeight > 0 && primaryEl && primaryEl.getBoundingClientRect) {
+          var fitNowH = fit.getBoundingClientRect().height || 0;
+          var primaryRowH = primaryEl.getBoundingClientRect().height || 0;
+          var outsideH = Math.max(0, scroller.scrollHeight - primaryRowH);
+          var colExtraH = Math.max(0, ((col.getBoundingClientRect ? (col.getBoundingClientRect().height || 0) : 0) - fitNowH));
+          var availH = Math.floor(scroller.clientHeight - outsideH - colExtraH);
+          if (availH >= 140 && boxH > availH) {
+            boxH = availH;
+            boxW = Math.max(1, Math.round(boxH * (w / h)));
+            if (colW > 0 && boxW > colW) boxW = colW;
+          }
+        }
+
         fit.style.width = boxW + 'px';
         fit.style.height = boxH + 'px';
         syncVideoBubbleTextEditorHeight(boxH);
@@ -14372,7 +14571,7 @@
         // Muss exakt zum gemeinsamen CSS-Umschaltpunkt passen. Sonst berechnet JS
         // bereits ein einspaltiges Layout, während CSS Monitor + Felder noch in
         // zwei Spalten hält (oder umgekehrt).
-        var stacked = !!(window.matchMedia && window.matchMedia('(max-width: 1120px)').matches);
+        var stacked = !!(window.matchMedia && window.matchMedia('(max-width: 1360px)').matches);
         var primaryW = primaryEl && primaryEl.getBoundingClientRect ? primaryEl.getBoundingClientRect().width : 0;
         var settingsW = 0;
         var leadingSettingsW = 0;
@@ -17857,10 +18056,13 @@
       function handlePayload(payload, label) {
         if (typeof cheatHandleVariablePayload === 'function' && cheatHandleVariablePayload(payload)) return;
         if (typeof chatHandleActionsPayload === 'function' && chatHandleActionsPayload(payload)) return;
-        // Antwort auf GetActiveViewers -> in den Zuschauer-Roster übernehmen.
+        // Antwort auf GetActiveViewers -> plattformgetreu in den Zuschauer-Roster übernehmen.
         if (payload && Array.isArray(payload.viewers)) { try { erIngestViewers(payload.viewers); } catch (e) {} }
         var ev = payload && payload.event ? (payload.event.source || '') + '.' + (payload.event.type || '') : '';
-        if (ev === 'Twitch.ChatMessage' || ev === 'YouTube.Message' || ev === 'Kick.ChatMessage') {
+        if (ev === 'Twitch.PresentViewers' || ev === 'YouTube.PresentViewers' || ev === 'Kick.PresentViewers') {
+          try { erIngestPresentViewers(payload, String(payload.event.source || '').toLowerCase()); } catch (e) {}
+          log(ev + ' empfangen via ' + label, payload, 'ok');
+        } else if (ev === 'Twitch.ChatMessage' || ev === 'YouTube.Message' || ev === 'Kick.ChatMessage') {
           if (label === 'WebSocket') {
             state.chatEvents++;
             // Twitch-Zeilen kommen bei aktiver Direktverbindung (EventSub) schon
@@ -18072,9 +18274,9 @@
             request: 'Subscribe',
             id: 'diagnose-subscribe-' + Date.now(),
             events: {
-              Twitch: ['ChatMessage', 'RewardRedemption'],
-              YouTube: ['Message'],
-              Kick: ['ChatMessage'],
+              Twitch: ['ChatMessage', 'RewardRedemption', 'PresentViewers'],
+              YouTube: ['Message', 'PresentViewers'],
+              Kick: ['ChatMessage', 'PresentViewers'],
               General: ['Custom'],
               Misc: ['GlobalVariableCreated', 'GlobalVariableUpdated', 'GlobalVariableDeleted']
             }
@@ -21988,6 +22190,76 @@
           status.textContent = '';
           status.className = 'game-event-import-status';
         }
+      }
+
+      var RIGHT_SIDEBAR_COLLAPSED_KEY = 'freakshow.rightSidebarCollapsed';
+      function rightSidebarText(de, en, es) {
+        var lang = 'de';
+        try { lang = String(window.localStorage.getItem('kappi.ui.lang') || document.documentElement.lang || 'de').toLowerCase(); } catch (e) {}
+        return lang === 'en' ? en : (lang === 'es' ? es : de);
+      }
+      function setRightSidebarCollapsed(collapsed, persist) {
+        collapsed = !!collapsed;
+        document.body.classList.toggle('right-sidebar-collapsed', collapsed);
+        var sidebar = byId('right-sidebar');
+        var button = byId('right-sidebar-toggle');
+        if (sidebar) sidebar.setAttribute('aria-hidden', collapsed ? 'true' : 'false');
+        if (button) {
+          button.textContent = collapsed ? '‹‹‹' : '›››';
+          button.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+          var label = collapsed
+            ? rightSidebarText('Chat und Effekt einblenden', 'Show chat and effects', 'Mostrar chat y efectos')
+            : rightSidebarText('Chat und Effekt ausblenden', 'Hide chat and effects', 'Ocultar chat y efectos');
+          button.setAttribute('aria-label', label);
+          button.title = label;
+        }
+        if (persist !== false) {
+          try { window.localStorage.setItem(RIGHT_SIDEBAR_COLLAPSED_KEY, collapsed ? '1' : '0'); } catch (e) {}
+        }
+        updateSidebarHeight();
+        window.dispatchEvent(new Event('resize'));
+      }
+      // Gegenstueck links: klappt die Gruppen- und Listenspalte ein. Bewusst
+      // dieselbe Mechanik wie rechts - Zustand gemerkt, Beschriftung dreisprachig.
+      var LEFT_NAV_COLLAPSED_KEY = 'freakshow.leftNavCollapsed';
+      function setLeftNavCollapsed(collapsed, persist) {
+        collapsed = !!collapsed;
+        document.body.classList.toggle('left-nav-collapsed', collapsed);
+        var button = byId('left-nav-toggle');
+        if (button) {
+          button.textContent = collapsed ? '›››' : '‹‹‹';
+          button.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+          var label = collapsed
+            ? rightSidebarText('Gruppen einblenden', 'Show groups', 'Mostrar grupos')
+            : rightSidebarText('Gruppen ausblenden', 'Hide groups', 'Ocultar grupos');
+          button.setAttribute('aria-label', label);
+          button.title = label;
+        }
+        if (persist !== false) {
+          try { window.localStorage.setItem(LEFT_NAV_COLLAPSED_KEY, collapsed ? '1' : '0'); } catch (e) {}
+        }
+        if (typeof updateSidebarHeight === 'function') updateSidebarHeight();
+        window.dispatchEvent(new Event('resize'));
+      }
+
+      function initLeftNavToggle() {
+        var collapsed = false;
+        try { collapsed = window.localStorage.getItem(LEFT_NAV_COLLAPSED_KEY) === '1'; } catch (e) {}
+        setLeftNavCollapsed(collapsed, false);
+        var button = byId('left-nav-toggle');
+        if (button) button.addEventListener('click', function () {
+          setLeftNavCollapsed(!document.body.classList.contains('left-nav-collapsed'), true);
+        });
+      }
+
+      function initRightSidebarToggle() {
+        var collapsed = false;
+        try { collapsed = window.localStorage.getItem(RIGHT_SIDEBAR_COLLAPSED_KEY) === '1'; } catch (e) {}
+        setRightSidebarCollapsed(collapsed, false);
+        var button = byId('right-sidebar-toggle');
+        if (button) button.addEventListener('click', function () {
+          setRightSidebarCollapsed(!document.body.classList.contains('right-sidebar-collapsed'), true);
+        });
       }
 
       function setGameEventImportCopyStatus(message, className) {
@@ -29834,12 +30106,46 @@
         if (!Array.isArray(viewers)) return;
         for (var i = 0; i < viewers.length; i++) {
           var v = viewers[i] || {};
-          var login = chatStr(v.login) || chatStr(v.Login);
+          // Bei PresentViewers stammt die sichere Plattform aus dem Event selbst.
+          // "type" kann je nach Streamer.bot-Version auch eine Benutzerart enthalten
+          // und darf diese Plattformangabe deshalb nicht ueberschreiben.
+          var platform = erPlatform(v.platform || v.Platform || v.type || v.Type);
+          var login = chatStr(v.login) || chatStr(v.Login) || chatStr(v.userName) || chatStr(v.username) || chatStr(v.name) || chatStr(v.id);
           if (!login) continue;
           var role = String(v.role || v.Role || '').toLowerCase();
-          erRosterUpsert(login, chatStr(v.display) || chatStr(v.Display) || login,
-            { mod: role === 'moderator', vip: role === 'vip', sub: !!(v.subscribed || v.Subscribed) });
+          erRosterUpsert(login, chatStr(v.display) || chatStr(v.Display) || chatStr(v.displayName) || chatStr(v.userName) || login,
+            {
+              mod: role === 'moderator' || !!v.isModerator,
+              vip: role === 'vip' || !!v.isVip,
+              sub: !!(v.subscribed || v.Subscribed || v.isSubscribed || v.isSponsor || v.isMember),
+              broadcaster: role === 'broadcaster' || !!v.isBroadcaster
+            }, false, {
+              platform: platform,
+              avatarUrl: chatStr(v.userProfileUrl) || chatStr(v.profileImageUrl) || chatStr(v.avatarUrl),
+              userId: chatStr(v.userId) || chatStr(v.id)
+            });
         }
+      }
+      function erIngestPresentViewers(payload, platform) {
+        var data = dataOf(payload) || {};
+        var viewers = data.users || data.viewers || payload.users || payload.viewers || [];
+        if (typeof viewers === 'string') {
+          try { viewers = JSON.parse(viewers); } catch (e) { viewers = []; }
+        }
+        if (!Array.isArray(viewers)) return;
+        var normalized = [];
+        for (var i = 0; i < viewers.length; i++) {
+          var v = viewers[i];
+          if (typeof v === 'string') v = { login: v, display: v };
+          if (!v || typeof v !== 'object') continue;
+          var copy = {};
+          for (var key in v) copy[key] = v[key];
+          // Die Quelle des PresentViewers-Events ist eindeutig und soll auch dann
+          // gewinnen, wenn ein einzelner Datensatz ein anders belegtes "type" hat.
+          if (!copy.platform && !copy.Platform) copy.platform = platform;
+          normalized.push(copy);
+        }
+        erIngestViewers(normalized);
       }
       function erRequestViewers() {
         try { if (typeof socket !== 'undefined' && socket && socket.readyState === WebSocket.OPEN) { send({ request: 'GetActiveViewers', id: 'diagnose-viewers-' + Date.now() }); } } catch (e) {}
@@ -30402,6 +30708,8 @@
         sendPositionPreviewSwitches(false);
       }
       setStatus();
+      initRightSidebarToggle();
+      initLeftNavToggle();
       updateSidebarHeight();
       pollOverlayProcessStatus();
       setInterval(pollOverlayProcessStatus, 2000);

@@ -10,7 +10,7 @@ const html = read(path.join('app', 'websocket-diagnose.html'));
 const bridge = read('EmbeddedBridge.ps1');
 const updateManifest = JSON.parse(read('update-manifest.json'));
 const version = read('VERSION.txt').trim();
-const escapedVersion = version.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const escapedVersion = version.replace(/\./g, '\\.');
 
 assert.match(version, /^\d+\.\d+\.\d+$/);
 assert.match(read('VersionInfo.cs'), new RegExp(`AssemblyFileVersion\\("${escapedVersion}\\.0"\\)`));

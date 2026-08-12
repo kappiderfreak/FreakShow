@@ -361,8 +361,10 @@
   }
 
   // StreamUP Horizontal Chat liest die Streamer.bot-Verbindung aus den Parametern
-  // "url" und "port". Im FreakShow-iframe verbindet es sich zuverlaessig ueber
-  // den lokalen Relay, auch wenn Streamer.bot auf einem zweiten PC laeuft.
+  // "url" und "port". Laeuft das HTML innerhalb eines FreakShow-iframes, kann der
+  // Browser den direkten Wechsel von 127.0.0.1 zur LAN-IP blockieren (Private
+  // Network Access). Der lokale FreakShow-Relay ist bereits mit Streamer.bot
+  // verbunden und vermeidet diese Browserfreigabe vollstaendig.
   function isStreamUpHorizontalChat(url) {
     try {
       return /(?:^|\/)StreamUP-HorizontalChat\.html(?:[?#]|$)/i.test(decodeURIComponent(String(url || '')));
@@ -447,6 +449,9 @@
     var profile = link.profile || 'auto';
     var provider = overlayProviderFor(url);
 
+    // Dieses Overlay verwendet "url" statt der ueblichen Parameter address/host.
+    // Immer ueber den lokalen Relay verbinden; PROXY_HOST ist automatisch der PC,
+    // von dem die FreakShow-Ausgabe geladen wurde.
     if (isStreamUpHorizontalChat(url)) {
       return setQueryValues(url, { url: PROXY_HOST, port: PROXY_PORT });
     }

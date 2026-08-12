@@ -3,11 +3,11 @@ using System.Reflection;
 [assembly: AssemblyTitle("FreakShow")]
 [assembly: AssemblyProduct("FreakShow")]
 [assembly: AssemblyCompany("kappiderfreak")]
-[assembly: AssemblyVersion("1.5.2.0")]
-[assembly: AssemblyFileVersion("1.5.2.0")]
-[assembly: AssemblyInformationalVersion("1.5.2")]
+[assembly: AssemblyVersion("1.5.3.0")]
+[assembly: AssemblyFileVersion("1.5.3.0")]
+[assembly: AssemblyInformationalVersion("1.5.3")]
 
 internal static class FreakShowVersion
 {
-    public const string Current = "1.5.2";
+    public const string Current = "1.5.3";
 }

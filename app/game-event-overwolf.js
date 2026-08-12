@@ -116,7 +116,7 @@
       '.game-event-type-overwolf.overwolf-status-none{border-color:#e0655a!important;color:#ff8a80!important;background:rgba(224,101,90,.12)!important}',
       '.game-event-type-overwolf.overwolf-status-partial{border-color:#d7963b!important;color:#f0b85f!important;background:rgba(215,150,59,.12)!important}',
       '.game-event-type-overwolf.overwolf-status-full{border-color:#38d477!important;color:#77efaa!important;background:rgba(56,212,119,.12)!important}',
-      '@media(max-width:1120px){.game-event-overwolf-layout{grid-template-columns:minmax(0,1fr)}.game-event-overwolf-settings{grid-template-columns:repeat(2,minmax(0,1fr))}.game-event-overwolf-help{grid-column:1/-1}}',
+      '@media(max-width:1360px){.game-event-overwolf-layout{grid-template-columns:minmax(0,1fr)}.game-event-overwolf-settings{grid-template-columns:repeat(2,minmax(0,1fr))}.game-event-overwolf-help{grid-column:1/-1}}',
       '@media(max-width:720px){.game-event-overwolf-settings{grid-template-columns:minmax(0,1fr)}}'
     ].join('');
     document.head.appendChild(style);

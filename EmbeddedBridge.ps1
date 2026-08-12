@@ -2427,7 +2427,7 @@ function Read-WebSocketConfigJson {
         if ($null -ne $obj.host) { $cfgHost = ([string]$obj.host).Trim() }
         $cfgPort = 0
         if ($null -ne $obj.port) { try { $cfgPort = [int]$obj.port } catch { $cfgPort = 0 } }
-        if ($cfgHost -ne '' -and $cfgPort -gt 0 -and $cfgPort -le 65535) {
+        if ((Test-WebSocketHost $cfgHost) -and $cfgPort -gt 0 -and $cfgPort -le 65535) {
           $hostEsc = $cfgHost.Replace('\', '\\').Replace('"', '\"')
           return ('{"ok":true,"configured":true,"host":"' + $hostEsc + '","port":' + $cfgPort + '}')
         }
@@ -2436,13 +2436,21 @@ function Read-WebSocketConfigJson {
   } catch {}
   return '{"ok":true,"configured":false}'
 }
+function Test-WebSocketHost {
+  param([string]$HostValue)
+  $value = ([string]$HostValue).Trim()
+  if ([string]::IsNullOrWhiteSpace($value) -or $value.Length -gt 253) { return $false }
+  # Hostnamen, IPv4 und IPv6 zulassen; Pfade und URLs ablehnen.
+  if ($value -match '[\\/\s]' -or $value.Contains('://')) { return $false }
+  return ($value -match '^[A-Za-z0-9._:\-\[\]%]+$')
+}
 function Write-WebSocketConfigJson {
   param([object]$Incoming)
   $cfgHost = ''
   if ($null -ne $Incoming -and $null -ne $Incoming.host) { $cfgHost = ([string]$Incoming.host).Trim() }
   $cfgPort = 0
   if ($null -ne $Incoming -and $null -ne $Incoming.port) { try { $cfgPort = [int]$Incoming.port } catch { $cfgPort = 0 } }
-  if ($cfgHost -eq '' -or $cfgPort -le 0 -or $cfgPort -gt 65535) {
+  if (-not (Test-WebSocketHost $cfgHost) -or $cfgPort -le 0 -or $cfgPort -gt 65535) {
     return '{"ok":false,"error":"invalid host or port"}'
   }
   $hostEsc = $cfgHost.Replace('\', '\\').Replace('"', '\"')
@@ -4097,8 +4105,9 @@ while ($true) {
       continue
     }
 
-    # Einmaliger Import fuer die zentralen Game-Event-Aktionen. FreakShow ruft
-    # sie danach direkt ueber die Streamer.bot-WebSocket-Schnittstelle auf.
+    # Einmaliger Import fuer die zentrale Aktion "FreakShow - Process Event".
+    # FreakShow ruft sie spaeter direkt per Streamer.bot-WebSocket (DoAction) auf;
+    # der Benutzer muss deshalb weder Trigger noch Unteraktionen selbst anlegen.
     if ($method -eq 'GET' -and $path -eq '/game-event-import-code') {
       if ([string]::IsNullOrWhiteSpace($ProcessEventImportCode)) {
         Write-HttpResponse -Stream $stream -StatusCode 404 -Reason 'Not Found' -Body 'game event import unavailable' -ContentType 'text/plain'

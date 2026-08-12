@@ -129,7 +129,7 @@
       '.game-event-type-process.process-status-checking{border-color:#d7963b!important;color:#f0b85f!important;background:rgba(215,150,59,.12)!important}',
       '.game-event-type-process.process-status-running{border-color:#38d477!important;color:#77efaa!important;background:rgba(56,212,119,.12)!important}',
       '.game-event-type-recognition{border-color:var(--kappi-accent-border,#8b5cf6)!important}',
-      '@media(max-width:1120px){.game-event-process-layout{grid-template-columns:minmax(0,1fr)}.game-event-process-settings{grid-template-columns:repeat(2,minmax(0,1fr))}.game-event-process-toggle,.game-event-process-help{grid-column:1/-1}}',
+      '@media(max-width:1360px){.game-event-process-layout{grid-template-columns:minmax(0,1fr)}.game-event-process-settings{grid-template-columns:repeat(2,minmax(0,1fr))}.game-event-process-toggle,.game-event-process-help{grid-column:1/-1}}',
       '@media(max-width:720px){.game-event-process-settings{grid-template-columns:minmax(0,1fr)}}'
     ].join('');
     document.head.appendChild(style);
@@ -165,7 +165,7 @@
           '<div class="game-event-process-help" data-gep-label="variables"></div>' +
         '</aside>' +
       '</div>' +
-      '<div class="game-event-process-actions game-control-actions ed-slot-actions"><button id="ge-process-scan" type="button"></button><button id="ge-process-test" type="button" class="btn-success"></button></div>';
+      '<div class="game-event-process-actions game-control-actions ed-slot-actions"><button id="ge-process-scan" type="button"></button><button id="ge-process-import" type="button" class="btn-primary"></button><button id="ge-process-test" type="button" class="btn-success"></button></div>';
     editor.appendChild(editorRoot);
     bindEditorEvents();
     return editorRoot;
@@ -197,7 +197,74 @@
       'Pick an EXE in Explorer. Only the file name is used – the program does not need to be running.',
       'Elegir un EXE en el Explorador. Solo se usa el nombre del archivo: el programa no tiene que estar en ejecución.');
     text('ge-process-scan', tr('Jetzt prüfen', 'Check now', 'Comprobar ahora'));
+    text('ge-process-import', tr('Importcode kopieren', 'Copy import code', 'Copiar código de importación'));
     text('ge-process-test', tr('Streamer.bot testen', 'Test Streamer.bot', 'Probar Streamer.bot'));
+  }
+
+  function fallbackCopy(textValue) {
+    return new Promise(function (resolve, reject) {
+      var area = document.createElement('textarea');
+      area.value = String(textValue || '');
+      area.setAttribute('readonly', 'readonly');
+      area.style.position = 'fixed';
+      area.style.left = '-10000px';
+      area.style.top = '0';
+      document.body.appendChild(area);
+      area.select();
+      var copied = false;
+      try { copied = document.execCommand('copy'); } catch (error) {}
+      document.body.removeChild(area);
+      if (copied) resolve();
+      else reject(new Error('copy failed'));
+    });
+  }
+
+  function copyTextValue(textValue) {
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+      return navigator.clipboard.writeText(String(textValue || '')).catch(function () {
+        return fallbackCopy(textValue);
+      });
+    }
+    return fallbackCopy(textValue);
+  }
+
+  function setImportButtonState(label, disabled) {
+    var button = byId('ge-process-import');
+    if (!button) return;
+    button.textContent = label;
+    button.disabled = !!disabled;
+  }
+
+  function restoreImportButtonSoon() {
+    setTimeout(function () {
+      setImportButtonState(tr('Importcode kopieren', 'Copy import code', 'Copiar código de importación'), false);
+    }, 1800);
+  }
+
+  function copyProcessEventImportCode() {
+    setImportButtonState(tr('Wird kopiert …', 'Copying …', 'Copiando …'), true);
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', bridgeOrigin + '/game-event-import-code?t=' + Date.now(), true);
+    xhr.onreadystatechange = function () {
+      if (xhr.readyState !== 4) return;
+      if (xhr.status < 200 || xhr.status >= 300 || !String(xhr.responseText || '').trim()) {
+        setImportButtonState(tr('Import nicht verfügbar', 'Import unavailable', 'Importación no disponible'), false);
+        restoreImportButtonSoon();
+        return;
+      }
+      copyTextValue(String(xhr.responseText || '').trim()).then(function () {
+        setImportButtonState(tr('Importcode kopiert ✓', 'Import code copied ✓', 'Código copiado ✓'), false);
+        restoreImportButtonSoon();
+      }).catch(function () {
+        setImportButtonState(tr('Kopieren fehlgeschlagen', 'Copy failed', 'Error al copiar'), false);
+        restoreImportButtonSoon();
+      });
+    };
+    xhr.onerror = function () {
+      setImportButtonState(tr('Import nicht verfügbar', 'Import unavailable', 'Importación no disponible'), false);
+      restoreImportButtonSoon();
+    };
+    xhr.send();
   }
 
   function findProcessEntry(processName) {
@@ -539,6 +606,7 @@
       picker.value = '';
     };
     byId('ge-process-scan').onclick = function () { loadProcesses(true); };
+    byId('ge-process-import').onclick = copyProcessEventImportCode;
     byId('ge-process-test').onclick = function () {
       var item = selectedItem();
       if (!isProcessItem(item)) return;
