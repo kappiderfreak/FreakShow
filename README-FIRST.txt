@@ -1,7 +1,7 @@
-FreakShow 1.5.3
+FreakShow 1.5.5
 ===============
 
-Diese Veroeffentlichung enthaelt den Funktionsstand 1.5.3.
+Diese Veroeffentlichung enthaelt den Funktionsstand 1.5.5.
 Eine vollstaendige Aenderungsliste steht in CHANGELOG.md.
 
 DEUTSCH

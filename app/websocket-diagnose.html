@@ -713,6 +713,8 @@
       grid-template-columns: minmax(0, 1fr) var(--settings-sidebar-width);
       gap: var(--settings-layout-gap);
       align-items: start;
+      /* Chat/Effekt-Spalte faehrt weich zu statt hart zu springen. */
+      transition: grid-template-columns .26s ease, column-gap .26s ease;
     }
 
     .workspace-main {
@@ -765,41 +767,63 @@
       pointer-events: auto;
     }
 
+    /* Zwei Spuren behalten (rechte auf 0) - nur bei GLEICHER Spurenzahl kann
+       der Browser die Breite animieren. Mit einer einzigen Spur wuerde der
+       Chat beim Einklappen in die naechste Zeile umbrechen und hart springen. */
     body.right-sidebar-collapsed .workspace-layout {
-      grid-template-columns: minmax(0, 1fr);
+      grid-template-columns: minmax(0, 1fr) 0px;
+      column-gap: 0;
     }
 
     body.right-sidebar-collapsed .top-config {
       margin-right: 0;
     }
 
+    #right-sidebar {
+      transition: transform .26s ease, opacity .16s ease;
+      min-width: 0;
+      overflow: hidden;
+    }
+
     body.right-sidebar-collapsed #right-sidebar {
       opacity: 0;
-      visibility: hidden;
       pointer-events: none;
       transform: translateX(calc(100% + 24px));
     }
 
     /* Gegenstueck links: die Gruppen- und Listenspalte des aktiven Reiters
        einklappen. Gleiche Bedienung wie rechts, nur gespiegelt. */
+    /* Klappt die Gruppen- und Listenspalte ein. Verhalten wie der Chat-Knopf
+       rechts, nur gespiegelt: OFFEN ist der Knopf unsichtbar und erscheint
+       erst, wenn die Maus den linken Rand erreicht. EINGEKLAPPT bleibt er
+       dauerhaft sichtbar, damit man die Spalte sofort zurueckholen kann. */
     .left-nav-edge {
       position: fixed;
       z-index: 4200;
       top: 0;
       left: 0;
-      width: 34px;
+      /* Der Streifen ist die WECKZONE: volle Hoehe, aber nur 8 px schmal.
+         Egal ob die Maus oben links, mittig oder unten links am Rand steht -
+         der Knopf erscheint. Schmal deshalb, damit der Streifen keine Klicks
+         schluckt, die den Eintraegen der Liste gelten. */
+      width: 8px;
       height: 100vh;
       display: flex;
       align-items: center;
       justify-content: flex-start;
-      pointer-events: none;
+      pointer-events: auto;
     }
 
     .left-nav-toggle {
-      width: 30px;
-      min-width: 30px;
+      /* Unsichtbar nur WENIGE Pixel schmal: die Weckzone liegt ueber dem
+         Randabstand der Liste. Ein breiter unsichtbarer Knopf wuerde Klicks
+         schlucken, die eigentlich einem Avatar oder Schalter galten - die
+         Spalte klappte dann scheinbar grundlos ein. */
+      width: 8px;
+      min-width: 8px;
       height: 74px;
-      padding: 0 2px;
+      padding: 0;
+      overflow: hidden;
       border: 1px solid color-mix(in srgb, var(--kappi-accent-border, #5f90f2) 75%, transparent);
       border-left: 0;
       border-radius: 0 9px 9px 0;
@@ -808,15 +832,27 @@
       box-shadow: 4px 0 18px rgba(0,0,0,.34);
       font: 800 14px/1 var(--ui-font);
       letter-spacing: -4px;
-      /* Dauerhaft sichtbar. Ein Knopf, der erst beim Anfahren des Randes
-         erscheint, ist im Betrieb nicht zu treffen. */
+      opacity: 0;
+      transform: translateX(-7px);
+      pointer-events: auto;
+      /* Gleiche Einblend-Animation wie der Chat-Knopf rechts (Deckkraft +
+         kurzes Hereingleiten). Hinweis: die eingebettete Vorschau friert
+         solche Uebergaenge teils ein - im echten Fenster laufen sie normal,
+         der rechte Knopf beweist es taeglich. */
+      transition: opacity .16s ease, transform .16s ease, width .16s ease, background .16s ease;
+    }
+
+    /* Maus IRGENDWO am linken Rand (voller Streifen), auf dem Knopf selbst,
+       Tastaturfokus oder eingeklappte Spalte: sichtbar und volle Breite. */
+    .left-nav-edge:hover .left-nav-toggle,
+    .left-nav-toggle:hover,
+    .left-nav-toggle:focus-visible,
+    body.left-nav-collapsed .left-nav-toggle {
+      width: 30px;
+      min-width: 30px;
+      padding: 0 2px;
       opacity: 1;
       transform: translateX(0);
-      /* MUSS auto sein: der Rahmen darueber hat pointer-events:none, damit die
-         Gruppenliste anklickbar bleibt. Ohne das hier laesst sich der Knopf
-         weder anklicken noch ueberfahren - dann erscheint er nie. */
-      pointer-events: auto;
-      transition: opacity .16s ease, transform .16s ease, background .16s ease;
     }
 
     .left-nav-toggle:hover,
@@ -824,19 +860,49 @@
       background: color-mix(in srgb, var(--kappi-accent-bg, #183866) 96%, rgba(8,12,18,.96));
     }
 
-    /* Eingeklappt: die Listenspalte verschwindet, der Editor bekommt die Breite.
-       Ueber die KLASSEN der Navigationsspalten, nicht ueber die Verschachtelung -
-       die Reiter bauen ihre Spalte unterschiedlich tief ein. Mit einem
-       Kindselektor blieb die Liste in Videos stehen und rutschte als volle
-       Breite nach oben.
-       !important, weil mehrere Reiter ihr Raster mit hoeherer Spezifitaet
-       ueberschreiben (z. B. .link-browser.image-browser). */
+    /* Eingeklappt: WEICH ausblenden statt hart abschalten. Die Rasterspur der
+       Spalte faehrt auf 0, der Inhalt blendet aus, Polsterung und Trennrand
+       fahren mit auf 0 - sonst bliebe ein 20-px-Streifen aus Innenabstand
+       stehen. Ueber die KLASSEN der Spalten, nicht ueber die Verschachtelung
+       (die Reiter bauen unterschiedlich tief); !important, weil mehrere Reiter
+       ihr Raster spezifischer setzen. */
+    .video-manager-nav,
+    .cheat-nav-aside,
+    .er-nav,
+    .image-nav-aside,
+    .link-nav {
+      min-width: 0;
+      overflow: hidden;
+      transition: opacity .15s ease, padding .26s ease, border-right-width .26s ease;
+    }
+
     body.left-nav-collapsed .video-manager-nav,
     body.left-nav-collapsed .cheat-nav-aside,
     body.left-nav-collapsed .er-nav,
     body.left-nav-collapsed .image-nav-aside,
     body.left-nav-collapsed .link-nav {
-      display: none !important;
+      opacity: 0;
+      padding: 0 !important;
+      border-right-width: 0 !important;
+      pointer-events: none;
+    }
+
+    /* Zwei Spuren behalten (linke auf 0) - nur bei GLEICHER Spurenzahl kann
+       der Browser die Spaltenbreite animieren. */
+    .video-manager,
+    .cheat-manager,
+    .link-browser,
+    .image-browser,
+    .emoterain-manager {
+      transition: grid-template-columns .26s ease, column-gap .26s ease;
+      /* Waehrend die Spalte von 0 auf 320 faehrt, ist die Summe der Spuren fuer
+         einen Moment breiter als der Rahmen - bei schmalem Fenster blitzte
+         deshalb unten kurz eine Bildlaufleiste auf.
+         WICHTIG "clip" statt "hidden": hidden zwingt die senkrechte Achse auf
+         auto, der Container wird dadurch zum eigenen Scrollbereich und es
+         erscheint eine ZWEITE Bildlaufleiste neben der des Editors. clip
+         schneidet nur ab und laesst die andere Achse unberuehrt. */
+      overflow-x: clip;
     }
 
     body.left-nav-collapsed .video-manager,
@@ -844,15 +910,14 @@
     body.left-nav-collapsed .link-browser,
     body.left-nav-collapsed .image-browser,
     body.left-nav-collapsed .emoterain-manager {
-      grid-template-columns: minmax(0, 1fr) !important;
+      grid-template-columns: 0px minmax(0, 1fr) !important;
+      column-gap: 0 !important;
     }
 
-    /* Overlays zeichnet den Spaltentrenner NICHT als Rand der Liste, sondern als
-       eigenes ::after am Raster - auf fester Position (--ed-list-w). Der bleibt
-       deshalb stehen, wenn die Liste verschwindet: genau der Streifen ohne
-       etwas davor. */
+    /* Overlays zeichnet den Spaltentrenner als eigenes ::after auf fester
+       Position - er blendet weich mit aus statt stehen zu bleiben. */
     body.left-nav-collapsed #workspace-view-links .link-browser::after {
-      display: none;
+      opacity: 0;
     }
 
 
@@ -1415,10 +1480,97 @@
     @media (max-width: 1500px) { .cheat-editor-primary { grid-template-columns: var(--ed-settings-w) minmax(0,1fr); } }
     @media (max-width: 1500px) { .cheat-editor-primary.has-segment-rail { grid-template-columns: var(--ed-settings-w) minmax(0,1fr); } }
     @media (max-width: 980px) { .cheat-editor-primary { grid-template-columns: 1fr; } }
-    @media (max-width: 1360px) {
+    @media (max-width: 2100px) {
       .cheat-editor-primary.has-segment-rail { grid-template-columns: 1fr; }
       .cheat-editor-primary > #cheat-fields-host-left { grid-column: 1; grid-row: auto; padding-right: 0; }
       .cheat-editor-primary > .cheat-center { grid-column: 1; grid-row: auto; }
+    }
+
+    /* NUR bei wirklich schmalen Fenstern: Dort wird der gestapelte Editor
+       hoeher als das Fenster. Statt einer INNEREN Bildlaufleiste (die neben der
+       aeusseren stand = zwei Leisten) darf die ganze Seite wachsen und scrollen.
+       Bewusst eine EIGENE Schwelle - an die Stapel-Schwelle der Editoren (2100)
+       gekoppelt wuerde sie auch bei normal grossen Fenstern greifen und dort
+       die feste Arbeitsflaechenhoehe aufheben. */
+    @media (max-width: 1500px) {
+      .workspace-main {
+        height: auto !important;
+        min-height: 0;
+        overflow: visible !important;
+      }
+      /* Auch die HOEHE freigeben, nicht nur den Ueberlauf: Die Editoren haben
+         eine feste Hoehe aus der Arbeitsflaeche. Gestapelt ist ihr Inhalt aber
+         deutlich hoeher - die unteren Knoepfe (z. B. "Regen testen") lagen dann
+         ausserhalb und waren NICHT erreichbar, weil die Seite ebenfalls nicht
+         wuchs. Mit auto waechst der Editor, die Seite waechst mit und die
+         aeussere Bildlaufleiste macht alles erreichbar. */
+      .cheat-editor-wrap,
+      .video-manager-editor,
+      .image-manager-editor,
+      .er-editor,
+      .game-control-editor,
+      #workspace-view-links .link-detail-host,
+      .video-manager,
+      .cheat-manager,
+      .link-browser,
+      .image-browser,
+      .emoterain-manager {
+        height: auto !important;
+        min-height: 0 !important;
+        max-height: none !important;
+        overflow-y: visible !important;
+      }
+
+      /* ABER: die Gruppenliste darf NICHT mitwachsen. Ueber der vollen Breite
+         wuerde sie ihre komplette Inhaltshoehe einnehmen (bei vielen Videos
+         ueber 1500 px) und den Editor komplett nach unten schieben - genau die
+         lange leere Flaeche oben. Sie bekommt eine feste Hoehe und scrollt in
+         sich, so bleibt der Editor sofort sichtbar. */
+      .video-overlay-list,
+      #image-nav,
+      .link-nav,
+      #er-user-list,
+      #cheat-nav,
+      #game-control-list,
+      #game-event-control-list {
+        max-height: 240px !important;
+        overflow-y: auto !important;
+      }
+
+      /* Die Rasterzeile muss ebenfalls frei werden. Mit grid-template-rows
+         minmax(0,1fr) bleibt die einzige Zeile auf Managerhoehe gedeckelt -
+         der Editor bekommt dann keinen Platz und scrollt in sich, egal wie oft
+         man seine Hoehe freigibt. Genau das stauchte den Roten Teppich. */
+      #workspace-view-emoterain > .emoterain-manager,
+      .video-manager,
+      .cheat-manager,
+      .link-browser,
+      .image-browser,
+      .emoterain-manager {
+        grid-template-rows: auto !important;
+      }
+
+      /* Inhaltsblock soll seine natuerliche Hoehe nehmen statt sich als
+         Flex-Kind auf den Restplatz zu schrumpfen. */
+      .er-editor-fields,
+      .cheat-editor-primary,
+      .video-editor-primary {
+        flex: 0 0 auto !important;
+        min-height: 0 !important;
+      }
+
+      /* Eingeklappte Gruppenspalte hier WIRKLICH entfernen. Nebeneinander
+         genuegt opacity:0 (die Rasterspalte faehrt auf 0 und das Ausblenden
+         bleibt weich). Gestapelt ist die Spalte dagegen eine volle Zeile und
+         behaelt trotz opacity:0 ihre Hoehe - das ergab einen leeren Kasten
+         ueber dem Editor. */
+      body.left-nav-collapsed .video-manager-nav,
+      body.left-nav-collapsed .cheat-nav-aside,
+      body.left-nav-collapsed .er-nav,
+      body.left-nav-collapsed .image-nav-aside,
+      body.left-nav-collapsed .link-nav {
+        display: none !important;
+      }
     }
     .cheat-nav-aside { display: flex; flex-direction: column; min-width: 0; border-right: 1px solid rgba(255,255,255,.14); padding-right: 12px; }
     html.ui-themed .cheat-nav-aside { border-right-color: var(--t-border); }
@@ -2292,6 +2444,7 @@
       left: calc(var(--ed-list-w) - 1px);
       border-left: 1px solid rgba(255,255,255,.12);
       pointer-events: none;
+      transition: opacity .18s ease;
     }
     html.ui-themed #workspace-view-links .link-browser::after { border-left-color: var(--t-border); }
 
@@ -2323,7 +2476,13 @@
       gap: 0;
       border: 0;
       border-radius: 0;
-      overflow: visible;
+      /* Senkrecht sichtbar (die Aktionsreihe liegt teils ausserhalb), seitlich
+         aber NIE scrollen: waehrend die Gruppenspalte von 0 auf 320 faehrt,
+         waere die Spurensumme sonst kurz breiter als der Rahmen.
+         "clip" statt "hidden" - sonst wuerde overflow-y zwangsweise auf auto
+         springen und eine zweite Bildlaufleiste erzeugen. */
+      overflow-x: clip;
+      overflow-y: visible;
       background: transparent;
     }
     html.ui-themed #workspace-view-links .link-browser,
@@ -3619,7 +3778,7 @@
       border-color: rgba(255,100,124,.58);
       background: rgba(130,24,45,.26);
     }
-    @media (max-width: 1360px) {
+    @media (max-width: 2100px) {
       .game-control-editor-primary { grid-template-columns: minmax(0, 1fr); }
       .game-control-settings { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .game-control-setting-field.game-control-trigger-field { grid-column: 1 / -1; }
@@ -4338,7 +4497,7 @@
     .cheat-editor-primary > .cheat-segment-overview[hidden] {
       display: none !important;
     }
-    @media (max-width: 1360px) {
+    @media (max-width: 2100px) {
       .cheat-editor-primary > .cheat-segment-overview {
         position: static;
         grid-column: 1;
@@ -5873,6 +6032,18 @@
       width: calc(100% - 2px);
       margin-left: 2px;
     }
+    /* Wird die Gruppenleiste ausgeblendet, steht der Bilder-Editor direkt an der
+       linken Arbeitsflaechenkante. Die Titelleiste behaelt trotzdem denselben
+       sichtbaren Aussen- und Innenabstand wie mit eingeblendeter Gruppe. Nur der
+       Kopf wird eingerueckt; Monitor und restlicher Editor bleiben unveraendert. */
+    body.left-nav-collapsed #workspace-view-images .image-editor-head {
+      width: calc(100% - 12px);
+      min-height: 42px;
+      margin-left: 12px;
+      margin-right: 0;
+      padding-top: 7px;
+      padding-bottom: 7px;
+    }
 
     .link-card-power {
       display: inline-flex;
@@ -6804,8 +6975,12 @@
         min-height: 140px;
       }
 
+      /* Gruppen bleiben untereinander, auch wenn die Liste ueber die volle
+         Breite geht. Mehrspaltig (auto-fit) sahen die Gruppenkoepfe je nach
+         Reiter voellig anders aus als bei Notizen und Rotem Teppich, die schon
+         immer stapeln. */
       .video-overlay-list {
-        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        grid-template-columns: minmax(0, 1fr);
         max-height: 190px;
       }
 
@@ -6858,7 +7033,8 @@
       }
 
       .link-nav {
-        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        /* Wie oben: eine Spalte, damit alle Reiter gleich aussehen. */
+        grid-template-columns: minmax(0, 1fr);
         min-height: 0;
         height: auto;
         overflow-y: visible;
@@ -6905,7 +7081,7 @@
     /* Monitor und Einstellungsfelder schalten GEMEINSAM auf untereinander.
        Die !important-Regel bei transform verhindert, dass eine ältere, inline
        berechnete Rechtsverschiebung beim Verkleinern stehen bleibt. */
-    @media (max-width: 1360px) {
+    @media (max-width: 2100px) {
       .video-editor-primary,
       .image-editor-primary,
       .er-editor-primary,
@@ -6939,6 +7115,178 @@
 
       .tabs-monitor-config {
         flex-wrap: wrap;
+        min-width: 0;
+        width: 100%;
+        margin-left: 0;
+        flex: 1 1 100%;
+      }
+
+      /* In der schmaleren Arbeitsansicht bekommt die Monitor-Konfiguration
+         bewusst eine eigene volle Zeile. Dadurch wird besonders der letzte
+         Schalter (Overlay-Ausgabe) als Ganzes umgebrochen und niemals rechts
+         vom Fenster abgeschnitten. */
+      .tabs-monitor-config > label {
+        max-width: 100%;
+      }
+
+      /* Sobald die grossen Editor-Slots untereinander stehen, darf nicht mehr
+         der einzelne Editor in einer festen Arbeitsflaeche scrollen. Sonst
+         entsteht bei halber Fensterbreite die weisse zweite Bildlaufleiste bei
+         Videos, Notizen und Rotem Teppich. Die Seite uebernimmt den vertikalen
+         Scrollweg; der Monitor und seine Bedienelemente bleiben ein Block. */
+      .workspace-main {
+        height: auto !important;
+        min-height: 0 !important;
+        overflow: visible !important;
+      }
+
+      .cheat-editor-wrap,
+      .video-manager-editor,
+      .image-manager-editor,
+      .er-editor,
+      .game-control-editor,
+      #workspace-view-links .link-detail-host,
+      .video-manager,
+      .cheat-manager,
+      .link-browser,
+      .image-browser,
+      .emoterain-manager {
+        height: auto !important;
+        min-height: 0 !important;
+        max-height: none !important;
+        overflow-y: visible !important;
+      }
+
+      #workspace-view-emoterain > .emoterain-manager,
+      .video-manager,
+      .cheat-manager,
+      .link-browser,
+      .image-browser,
+      .emoterain-manager {
+        grid-template-rows: auto !important;
+      }
+
+      .er-editor-fields,
+      .cheat-editor-primary,
+      .video-editor-primary {
+        flex: 0 0 auto !important;
+        min-height: 0 !important;
+      }
+
+      /* Halbe Desktop-/Ultrawide-Breite: Die Gruppenleiste liegt als eigene,
+         kompakte Zeile UEBER dem Editor. Der bisherige Zweispaltenaufbau liess
+         Monitor und Einstellungen zu frueh gegeneinander arbeiten und schnitt
+         einzelne Felder ab. Die Listen behalten einen eigenen Scrollweg, waehrend
+         Titel, Monitor und Funktionen darunter die volle Fensterbreite nutzen. */
+      .video-manager,
+      .emoterain-manager,
+      .cheat-manager,
+      #workspace-view-links .link-browser,
+      #workspace-view-images .link-browser.image-browser {
+        grid-template-columns: minmax(0, 1fr) !important;
+        column-gap: 0 !important;
+      }
+
+      .video-manager-nav,
+      .er-nav,
+      .cheat-nav-aside,
+      .image-browser .image-nav-aside,
+      #workspace-view-links .link-nav {
+        width: 100%;
+        max-width: none;
+        min-width: 0;
+        min-height: 0 !important;
+        height: auto !important;
+        box-sizing: border-box;
+        border-right: 0 !important;
+        border-bottom: 1px solid rgba(255,255,255,.12);
+      }
+
+      html.ui-themed .video-manager-nav,
+      html.ui-themed .er-nav,
+      html.ui-themed .cheat-nav-aside,
+      html.ui-themed .image-browser .image-nav-aside,
+      html.ui-themed #workspace-view-links .link-nav {
+        border-bottom-color: var(--t-border);
+      }
+
+      /* Im gestapelten Layout liegen die Overlay-Gruppen oberhalb des Editors.
+         Der alte senkrechte Spaltentrenner gehoert nur zum breiten
+         Zweispaltenlayout; andernfalls zieht er sich als Linie durch den
+         kompletten Overlay-Editor. Der untere Rand der Gruppenleiste bleibt als
+         passender waagerechter Trenner erhalten. */
+      #workspace-view-links .link-browser::after {
+        display: none;
+      }
+
+      .video-overlay-list,
+      #image-nav,
+      #er-user-list,
+      #cheat-nav,
+      #game-control-list,
+      #game-event-control-list,
+      #workspace-view-links .link-nav {
+        min-height: 0 !important;
+        max-height: min(32vh, 270px) !important;
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
+        scrollbar-gutter: stable;
+      }
+
+      .video-manager-editor,
+      .cheat-editor-wrap,
+      .er-editor,
+      #workspace-view-links .link-detail-host,
+      #workspace-view-images .link-detail-host {
+        grid-column: 1 / -1 !important;
+        width: 100%;
+        min-width: 0;
+        box-sizing: border-box;
+      }
+
+      /* Alle Editor-Koepfe erhalten im Zwischenmodus denselben Innenabstand.
+         Damit klebt besonders der Notiz-/Bildtitel nicht am oberen Rahmen. */
+      #workspace-view-overlays .video-editor-head,
+      #workspace-view-images .image-editor-head,
+      #workspace-view-emoterain .er-editor-head,
+      #workspace-view-endgame .cheat-editor-head,
+      #workspace-view-gamecontrols .video-editor-head,
+      #workspace-view-gameevent .video-editor-head,
+      #workspace-view-links .link-detail-host .link-card-head.video-editor-head {
+        min-height: 42px;
+        padding-top: 7px;
+        padding-bottom: 7px;
+      }
+
+      /* Im kompakten Layout muss eine ausgeblendete Gruppenliste auch aus der
+         Rasterbelegung verschwinden. Bei "0px + 1fr" rueckte der verbliebene
+         Editor sonst in die 0-px-Spalte und alle Felder wurden zu schmalen
+         Strichen zusammengedrueckt. Ein echtes Einspaltenraster funktioniert
+         fuer Videos, Notizen, Bilder, Overlays, Roten Teppich und Game-Tabs. */
+      body.left-nav-collapsed .video-manager-nav,
+      body.left-nav-collapsed .cheat-nav-aside,
+      body.left-nav-collapsed .er-nav,
+      body.left-nav-collapsed .image-nav-aside,
+      body.left-nav-collapsed .link-nav {
+        display: none !important;
+      }
+
+      body.left-nav-collapsed .video-manager,
+      body.left-nav-collapsed .cheat-manager,
+      body.left-nav-collapsed .link-browser,
+      body.left-nav-collapsed .image-browser,
+      body.left-nav-collapsed .emoterain-manager {
+        grid-template-columns: minmax(0, 1fr) !important;
+        column-gap: 0 !important;
+      }
+
+      body.left-nav-collapsed .video-manager-editor,
+      body.left-nav-collapsed .cheat-editor-wrap,
+      body.left-nav-collapsed .er-editor,
+      body.left-nav-collapsed .link-detail-host,
+      body.left-nav-collapsed .image-manager-editor {
+        grid-column: 1 / -1 !important;
+        width: 100%;
         min-width: 0;
       }
     }
@@ -14571,7 +14919,7 @@
         // Muss exakt zum gemeinsamen CSS-Umschaltpunkt passen. Sonst berechnet JS
         // bereits ein einspaltiges Layout, während CSS Monitor + Felder noch in
         // zwei Spalten hält (oder umgekehrt).
-        var stacked = !!(window.matchMedia && window.matchMedia('(max-width: 1360px)').matches);
+        var stacked = !!(window.matchMedia && window.matchMedia('(max-width: 2100px)').matches);
         var primaryW = primaryEl && primaryEl.getBoundingClientRect ? primaryEl.getBoundingClientRect().width : 0;
         var settingsW = 0;
         var leadingSettingsW = 0;
@@ -22218,6 +22566,9 @@
         }
         updateSidebarHeight();
         window.dispatchEvent(new Event('resize'));
+        // Zweites resize NACH der .26s-Spaltenanimation: Monitore und Vorschauen
+        // messen sich sonst mitten in der Bewegung und behalten die falsche Groesse.
+        window.setTimeout(function () { window.dispatchEvent(new Event('resize')); }, 300);
       }
       // Gegenstueck links: klappt die Gruppen- und Listenspalte ein. Bewusst
       // dieselbe Mechanik wie rechts - Zustand gemerkt, Beschriftung dreisprachig.
@@ -22240,6 +22591,8 @@
         }
         if (typeof updateSidebarHeight === 'function') updateSidebarHeight();
         window.dispatchEvent(new Event('resize'));
+        // Zweites resize NACH der .26s-Spaltenanimation (siehe rechte Seite).
+        window.setTimeout(function () { window.dispatchEvent(new Event('resize')); }, 300);
       }
 
       function initLeftNavToggle() {

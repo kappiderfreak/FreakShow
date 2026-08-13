@@ -107,7 +107,7 @@
       '.game-event-type-recognition.recognition-status-ready{border-color:#d7963b!important;color:#f0b85f!important;background:rgba(215,150,59,.12)!important}',
       '.game-event-type-recognition.recognition-status-detected{border-color:#38d477!important;color:#77efaa!important;background:rgba(56,212,119,.12)!important}',
       '.game-event-recognition-help{font-size:10px;line-height:1.35;color:var(--t-muted,#8ea0b8)}',
-      '@media(max-width:1360px){.game-event-recognition-layout{grid-template-columns:minmax(0,1fr)}.game-event-recognition-settings{grid-template-columns:repeat(2,minmax(0,1fr))}.game-event-recognition-toggle,.game-event-recognition-help{grid-column:1/-1}}',
+      '@media(max-width:2100px){.game-event-recognition-layout{grid-template-columns:minmax(0,1fr)}.game-event-recognition-settings{grid-template-columns:repeat(2,minmax(0,1fr))}.game-event-recognition-toggle,.game-event-recognition-help{grid-column:1/-1}}',
       '@media(max-width:720px){.game-event-recognition-settings{grid-template-columns:minmax(0,1fr)}}'
     ].join('');
     document.head.appendChild(style);

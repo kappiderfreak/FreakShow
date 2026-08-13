@@ -153,7 +153,7 @@
       '.game-event-type-act.act-status-partial{border-color:#d7963b!important;color:#f0b85f!important;background:rgba(215,150,59,.12)!important}',
       '.game-event-type-act.act-status-full{border-color:#38d477!important;color:#77efaa!important;background:rgba(56,212,119,.12)!important}',
       '[data-game-event-id]>.switch{justify-self:end;margin-left:auto}',
-      '@media(max-width:1360px){.game-event-act-layout{grid-template-columns:minmax(0,1fr)}.game-event-act-settings{grid-template-columns:repeat(2,minmax(0,1fr))}.game-event-act-help{grid-column:1/-1}}',
+      '@media(max-width:2100px){.game-event-act-layout{grid-template-columns:minmax(0,1fr)}.game-event-act-settings{grid-template-columns:repeat(2,minmax(0,1fr))}.game-event-act-help{grid-column:1/-1}}',
       '@media(max-width:720px){.game-event-act-settings{grid-template-columns:minmax(0,1fr)}}'
     ].join('');
     document.head.appendChild(style);

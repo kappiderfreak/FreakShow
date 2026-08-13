@@ -1,5 +1,22 @@
 # FreakShow – Änderungen
 
+## 1.5.5
+
+### Hotfix
+
+- Im schmalen, gestapelten Layout läuft der senkrechte Gruppentrenner nicht mehr durch den gesamten Editor. Der passende waagerechte Trenner bleibt erhalten.
+
+## 1.5.4
+
+### Korrigiert
+
+- alle Reiter bleiben jetzt auch bei halber beziehungsweise mittlerer Fensterbreite bedienbar; Gruppenlisten stehen dann platzsparend oberhalb des Editors
+- beim Ein- und Ausklappen der linken Gruppenleiste sowie der rechten Chat-/Effektleiste bleiben Vorschau, Monitor und Bedienelemente an ihrer vorgesehenen Position
+- unnötige innere Bildlaufleisten in Videos, Notizen, Bildern und Rotem Teppich wurden entfernt, ohne die Erreichbarkeit der Einstellungen zu verlieren
+- Abstände und Breiten der Editor-Kopfzeilen wurden vereinheitlicht, besonders im Bilder-Reiter bei eingeklappter Gruppenleiste
+- die Monitor-Einstellungen in der oberen Navigation umbrechen bei schmaleren Fenstern vollständig; der Schalter der Overlay-Ausgabe wird nicht mehr abgeschnitten
+- die Game-Event-Editoren wechseln bei mittleren Fensterbreiten rechtzeitig in das kompakte Layout
+
 ## 1.5.3
 
 ### Neu
